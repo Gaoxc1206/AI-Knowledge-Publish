@@ -1,17 +1,25 @@
-# Quartz v4
+# AI Knowledge Publish
 
-> “[One] who works with the door open gets all kinds of interruptions, but [they] also occasionally gets clues as to what the world is and what might be important.” — Richard Hamming
+这是 `C:\Users\Chuan\OneDrive\AI-Knowledge` 的公开发布仓库，用 Quartz + GitHub Pages 生成网站。
 
-Quartz is a set of tools that helps you publish your [digital garden](https://jzhao.xyz/posts/networked-thought) and notes as a website for free.
+公开站点：
 
-🔗 Read the documentation and get started: https://quartz.jzhao.xyz/
+https://gaoxc1206.github.io/AI-Knowledge-Publish/
 
-[Join the Discord Community](https://discord.gg/cRFFHYye7t)
+## 更新流程
 
-## Sponsors
+```powershell
+cd C:\Users\Chuan\OneDrive\AI-Knowledge-Publish
+.\sync-content.ps1
+npx quartz build
+git add .
+git commit -m "Update knowledge base"
+git push
+```
 
-<p align="center">
-  <a href="https://github.com/sponsors/jackyzha0">
-    <img src="https://cdn.jsdelivr.net/gh/jackyzha0/jackyzha0/sponsorkit/sponsors.svg" />
-  </a>
-</p>
+## 发布安全规则
+
+- 只发布 `content/wiki/` 中适合公开展示的 Markdown 和 `raw/zotero/images/` 中的论文图表。
+- 不发布 PDF、Zotero 数据库、脚本、API key、MinerU 原始解析目录和 JSON 元数据。
+- `sync-content.ps1` 会在发布副本中删除 `zotero_key`、`source_pdf` 等内部字段。
+- 这个仓库对应 GitHub Pages 公开站点，不是私有访问控制系统。
