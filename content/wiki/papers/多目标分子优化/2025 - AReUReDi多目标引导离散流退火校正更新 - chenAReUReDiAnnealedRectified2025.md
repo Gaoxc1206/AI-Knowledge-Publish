@@ -2,7 +2,7 @@
 type: paper
 citekey: "chenAReUReDiAnnealedRectified2025"
 zotero_key: "C4JQIKVC"
-title: "AReUReDi: Annealed Rectified Updates for Refining Discrete Flows with Multi-Objective Guidance"
+title: "AReUReDi多目标引导离散流退火校正更新"
 chinese_title: "AReUReDi多目标引导离散流退火校正更新"
 authors: "Tong Chen, Yinuo Zhang, Pranam Chatterjee"
 year: "2025"
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "AReUReDi多目标引导离散流退火校正更新"
   - "AReUReDi: Annealed Rectified Updates for Refining Discrete Flows with Multi-Objective Guidance"
+original_title: "AReUReDi: Annealed Rectified Updates for Refining Discrete Flows with Multi-Objective Guidance"
 ---
 ## 一句话总结
 

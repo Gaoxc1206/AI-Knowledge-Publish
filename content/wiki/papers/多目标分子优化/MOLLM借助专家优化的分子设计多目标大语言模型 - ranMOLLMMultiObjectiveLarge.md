@@ -2,7 +2,7 @@
 type: paper
 citekey: "ranMOLLMMultiObjectiveLarge"
 zotero_key: "Y7RIMRN8"
-title: "MOLLM: Multi-Objective Large Language Model for Molecular Design – Optimizing with Experts"
+title: "MOLLM借助专家优化的分子设计多目标大语言模型"
 chinese_title: "MOLLM借助专家优化的分子设计多目标大语言模型"
 authors: "Nian Ran, Yue Wang, Richard Allmendinger"
 year: ""
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "MOLLM借助专家优化的分子设计多目标大语言模型"
   - "MOLLM: Multi-Objective Large Language Model for Molecular Design – Optimizing with Experts"
+original_title: "MOLLM: Multi-Objective Large Language Model for Molecular Design – Optimizing with Experts"
 ---
 ## 一句话总结
 

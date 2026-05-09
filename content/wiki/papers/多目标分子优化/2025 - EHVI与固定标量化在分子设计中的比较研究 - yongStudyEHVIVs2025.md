@@ -2,7 +2,7 @@
 type: paper
 citekey: "yongStudyEHVIVs2025"
 zotero_key: "2L4MI73L"
-title: "A study of EHVI vs fixed scalarization for molecule design"
+title: "EHVI与固定标量化在分子设计中的比较研究"
 chinese_title: "EHVI与固定标量化在分子设计中的比较研究"
 authors: "Anabel Yong, Austin Tripp, Layla Hosseini-Gerami, Brooks Paige"
 year: "2025"
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "EHVI与固定标量化在分子设计中的比较研究"
   - "A study of EHVI vs fixed scalarization for molecule design"
+original_title: "A study of EHVI vs fixed scalarization for molecule design"
 ---
 ## 一句话总结
 

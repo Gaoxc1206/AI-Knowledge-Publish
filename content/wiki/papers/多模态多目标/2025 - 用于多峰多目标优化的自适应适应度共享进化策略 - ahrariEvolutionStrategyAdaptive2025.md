@@ -2,7 +2,7 @@
 type: paper
 citekey: "ahrariEvolutionStrategyAdaptive2025"
 zotero_key: "SX6WKSDC"
-title: "An Evolution Strategy With Adaptive Fitness Sharing for Multimodal Multiobjective Optimization"
+title: "用于多峰多目标优化的自适应适应度共享进化策略"
 authors: "Ali Ahrari, Ruhul Sarker, Mike Preuss"
 year: "2025"
 venue: "IEEE Transactions on Evolutionary Computation"
@@ -17,6 +17,7 @@ tags:
 aliases:
   - "An Evolution Strategy With Adaptive Fitness Sharing for Multimodal Multiobjective Optimization"
 chinese_title: "用于多峰多目标优化的自适应适应度共享进化策略"
+original_title: "An Evolution Strategy With Adaptive Fitness Sharing for Multimodal Multiobjective Optimization"
 ---
 # An Evolution Strategy With Adaptive Fitness Sharing for Multimodal Multiobjective Optimization
 

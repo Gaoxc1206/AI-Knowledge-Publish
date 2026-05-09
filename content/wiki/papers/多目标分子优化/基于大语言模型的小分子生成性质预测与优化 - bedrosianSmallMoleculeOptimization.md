@@ -2,7 +2,7 @@
 type: paper
 citekey: "bedrosianSmallMoleculeOptimization"
 zotero_key: "VIAUR6RC"
-title: "Small Molecule Optimization with Large Language Models"
+title: "基于大语言模型的小分子生成性质预测与优化"
 chinese_title: "基于大语言模型的小分子生成性质预测与优化"
 authors: "Menua Bedrosian, Philipp Guevorguian, Tigran Fahradyan"
 year: ""
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "基于大语言模型的小分子生成性质预测与优化"
   - "Small Molecule Optimization with Large Language Models"
+original_title: "Small Molecule Optimization with Large Language Models"
 ---
 ## 一句话总结
 

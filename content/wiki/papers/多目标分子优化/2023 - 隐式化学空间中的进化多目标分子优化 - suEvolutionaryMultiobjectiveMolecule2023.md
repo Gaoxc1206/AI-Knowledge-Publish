@@ -2,7 +2,7 @@
 type: paper
 citekey: "suEvolutionaryMultiobjectiveMolecule2023"
 zotero_key: "XDFQVXB6"
-title: "Evolutionary multi-objective molecule optimization in implicit chemical space"
+title: "隐式化学空间中的进化多目标分子优化"
 chinese_title: "隐式化学空间中的进化多目标分子优化"
 authors: "Yansen Su, Xin Xia, Chunhou Zheng, Yiping Liu, Qingwen Wu, Xiangxiang Zeng"
 year: "2023"
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "隐式化学空间中的进化多目标分子优化"
   - "Evolutionary multi-objective molecule optimization in implicit chemical space"
+original_title: "Evolutionary multi-objective molecule optimization in implicit chemical space"
 ---
 ## 一句话总结
 

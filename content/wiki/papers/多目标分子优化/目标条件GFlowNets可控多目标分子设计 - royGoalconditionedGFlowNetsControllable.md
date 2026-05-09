@@ -2,7 +2,7 @@
 type: paper
 citekey: "royGoalconditionedGFlowNetsControllable"
 zotero_key: "VPLF5P3D"
-title: "Goal-conditioned GFlowNets for Controllable Multi-Objective Molecular Design"
+title: "目标条件GFlowNets可控多目标分子设计"
 chinese_title: "目标条件GFlowNets可控多目标分子设计"
 authors: "Julien Roy, Pierre-Luc Bacon, Christopher Pal, Emmanuel Bengio"
 year: ""
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "目标条件GFlowNets可控多目标分子设计"
   - "Goal-conditioned GFlowNets for Controllable Multi-Objective Molecular Design"
+original_title: "Goal-conditioned GFlowNets for Controllable Multi-Objective Molecular Design"
 ---
 ## 一句话总结
 

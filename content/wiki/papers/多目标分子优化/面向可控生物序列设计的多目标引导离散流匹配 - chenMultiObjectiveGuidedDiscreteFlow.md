@@ -2,7 +2,7 @@
 type: paper
 citekey: "chenMultiObjectiveGuidedDiscreteFlow"
 zotero_key: "UFNTEBG3"
-title: "Multi-Objective-Guided Discrete Flow Matching for Controllable Biological Sequence Design"
+title: "面向可控生物序列设计的多目标引导离散流匹配"
 chinese_title: "面向可控生物序列设计的多目标引导离散流匹配"
 authors: "Tong Chen, Yinuo Zhang, Sophia Tang, Pranam Chatterjee"
 year: ""
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "面向可控生物序列设计的多目标引导离散流匹配"
   - "Multi-Objective-Guided Discrete Flow Matching for Controllable Biological Sequence Design"
+original_title: "Multi-Objective-Guided Discrete Flow Matching for Controllable Biological Sequence Design"
 ---
 ## 一句话总结
 

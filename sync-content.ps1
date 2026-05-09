@@ -16,6 +16,10 @@ $UpdateIndexScript = Join-Path $SourceVault "scripts\update_index.py"
 if (-not (Test-Path $UpdateIndexScript)) {
   throw "Index updater not found: $UpdateIndexScript"
 }
+$PreparePublicScript = Join-Path $SourceVault "scripts\prepare_public_content.py"
+if (-not (Test-Path $PreparePublicScript)) {
+  throw "Public content preparer not found: $PreparePublicScript"
+}
 
 $PythonCandidates = @(
   "D:\Users\Chuan\miniconda3\envs\test\python.exe",
@@ -45,8 +49,9 @@ New-Item -ItemType Directory -Force -Path (Join-Path $ContentRoot "raw\zotero") 
 
 Copy-Item -LiteralPath (Join-Path $SourceVault "wiki") -Destination (Join-Path $ContentRoot "wiki") -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $SourceVault "raw\zotero\images") -Destination (Join-Path $ContentRoot "raw\zotero\images") -Recurse -Force
-& $Python $UpdateIndexScript --vault $SourceVault --public --output (Join-Path $ContentRoot "index.md")
-& $Python $UpdateIndexScript --vault $SourceVault --public --output (Join-Path $ContentRoot "wiki\index.md")
+& $Python $PreparePublicScript --content $ContentRoot
+& $Python $UpdateIndexScript --vault $ContentRoot --public --output (Join-Path $ContentRoot "index.md")
+& $Python $UpdateIndexScript --vault $ContentRoot --public --output (Join-Path $ContentRoot "wiki\index.md")
 
 Get-ChildItem -LiteralPath (Join-Path $ContentRoot "raw\zotero\images") -Recurse -Filter "*.json" -ErrorAction SilentlyContinue |
   Remove-Item -Force

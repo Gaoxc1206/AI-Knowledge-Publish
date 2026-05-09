@@ -2,7 +2,7 @@
 type: paper
 citekey: "tanDistributionalMultiobjectiveBlackbox2025"
 zotero_key: "JZF5T2PK"
-title: "Distributional Multi-objective Black-box Optimization for Diffusion-model Inference-time Multi-Target Generation"
+title: "扩散推理时多目标生成的分布式多目标黑箱优化"
 chinese_title: "扩散推理时多目标生成的分布式多目标黑箱优化"
 authors: "Kim Yong Tan, Yueming Lyu, Ivor Tsang, Yew-Soon Ong"
 year: "2025"
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "扩散推理时多目标生成的分布式多目标黑箱优化"
   - "Distributional Multi-objective Black-box Optimization for Diffusion-model Inference-time Multi-Target Generation"
+original_title: "Distributional Multi-objective Black-box Optimization for Diffusion-model Inference-time Multi-Target Generation"
 ---
 ## 一句话总结
 

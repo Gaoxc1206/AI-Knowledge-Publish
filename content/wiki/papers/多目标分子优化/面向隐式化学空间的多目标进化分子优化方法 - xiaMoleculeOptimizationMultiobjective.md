@@ -2,7 +2,7 @@
 type: paper
 citekey: "xiaMoleculeOptimizationMultiobjective"
 zotero_key: "WVGSF6PD"
-title: "Molecule optimization via multi-objective evolutionary in implicit chemical space"
+title: "面向隐式化学空间的多目标进化分子优化方法"
 chinese_title: "面向隐式化学空间的多目标进化分子优化方法"
 authors: "Xin Xia, Yansen Su, Chunhou Zheng, Xiangxiang Zeng"
 year: ""
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "面向隐式化学空间的多目标进化分子优化方法"
   - "Molecule optimization via multi-objective evolutionary in implicit chemical space"
+original_title: "Molecule optimization via multi-objective evolutionary in implicit chemical space"
 ---
 ## 一句话总结
 

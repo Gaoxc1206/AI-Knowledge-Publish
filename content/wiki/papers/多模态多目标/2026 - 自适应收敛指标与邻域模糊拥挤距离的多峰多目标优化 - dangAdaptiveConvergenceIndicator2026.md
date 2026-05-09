@@ -2,7 +2,7 @@
 type: paper
 citekey: "dangAdaptiveConvergenceIndicator2026"
 zotero_key: "WNGVFH43"
-title: "Adaptive Convergence Indicator and Neighborhood Fuzzy Crowding Distance for Multimodal Multi-Objective Optimization"
+title: "自适应收敛指标与邻域模糊拥挤距离的多峰多目标优化"
 chinese_title: "自适应收敛指标与邻域模糊拥挤距离的多峰多目标优化"
 authors: "Qianlong Dang, Xiaochuan Gao, Baosheng Li, Tao Zhan, Maoguo Gong, Xiaoyu He"
 year: "2026"
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "自适应收敛指标与邻域模糊拥挤距离的多峰多目标优化"
   - "Adaptive Convergence Indicator and Neighborhood Fuzzy Crowding Distance for Multimodal Multi-Objective Optimization"
+original_title: "Adaptive Convergence Indicator and Neighborhood Fuzzy Crowding Distance for Multimodal Multi-Objective Optimization"
 ---
 ## 一句话总结
 

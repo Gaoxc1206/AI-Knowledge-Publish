@@ -2,7 +2,7 @@
 type: paper
 citekey: "deyLargeLanguageModels2025"
 zotero_key: "X2QIHFRH"
-title: "Large Language Models for Controllable Multi-property Multi-objective Molecule Optimization"
+title: "可控多属性多目标分子优化的大语言模型"
 chinese_title: "可控多属性多目标分子优化的大语言模型"
 authors: "Vishal Dey, Xiao Hu, Xia Ning"
 year: "2025"
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "可控多属性多目标分子优化的大语言模型"
   - "Large Language Models for Controllable Multi-property Multi-objective Molecule Optimization"
+original_title: "Large Language Models for Controllable Multi-property Multi-objective Molecule Optimization"
 ---
 # Large Language Models for Controllable Multi-property Multi-objective Molecule Optimization
 

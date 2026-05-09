@@ -2,7 +2,7 @@
 type: paper
 citekey: "heParetoMultiObjectiveAlignment2025"
 zotero_key: "7ZC4BA4C"
-title: "Pareto Multi-Objective Alignment for Language Models"
+title: "语言模型的帕累托多目标对齐"
 chinese_title: "语言模型的帕累托多目标对齐"
 authors: "Qiang He, Setareh Maghsudi"
 year: "2025"
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "语言模型的帕累托多目标对齐"
   - "Pareto Multi-Objective Alignment for Language Models"
+original_title: "Pareto Multi-Objective Alignment for Language Models"
 ---
 # Pareto Multi-Objective Alignment for Language Models
 

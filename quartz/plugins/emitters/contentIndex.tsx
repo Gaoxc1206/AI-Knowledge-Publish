@@ -21,6 +21,17 @@ export type ContentDetails = {
   description?: string
 }
 
+function displayTitleForSearch(file: any): string {
+  const title = file.data.frontmatter?.title ?? file.data.slug ?? ""
+  const type = file.data.frontmatter?.type
+  if (type === "paper") return `论文 | ${title}`
+  if (type === "concept") return `概念 | ${title}`
+  if (type === "method") return `方法 | ${title}`
+  if (type === "question") return `问题 | ${title}`
+  if (type === "map") return `地图 | ${title}`
+  return title
+}
+
 interface Options {
   enableSiteMap: boolean
   enableRSS: boolean
@@ -106,7 +117,7 @@ export const ContentIndex: QuartzEmitterPlugin<Partial<Options>> = (opts) => {
           linkIndex.set(slug, {
             slug,
             filePath: file.data.relativePath!,
-            title: file.data.frontmatter?.title!,
+            title: displayTitleForSearch(file),
             links: file.data.links ?? [],
             tags: file.data.frontmatter?.tags ?? [],
             content: file.data.text ?? "",

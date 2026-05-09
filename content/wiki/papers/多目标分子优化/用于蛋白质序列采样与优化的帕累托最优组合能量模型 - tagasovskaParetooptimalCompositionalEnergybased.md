@@ -2,7 +2,7 @@
 type: paper
 citekey: "tagasovskaParetooptimalCompositionalEnergybased"
 zotero_key: "4ZFZ7IFK"
-title: "A Pareto-optimal compositional energy-based model for sampling and optimization of protein sequences"
+title: "用于蛋白质序列采样与优化的帕累托最优组合能量模型"
 chinese_title: "用于蛋白质序列采样与优化的帕累托最优组合能量模型"
 authors: "Nataša Tagasovska, Nathan C Frey, Andreas Loukas, Isidro Hötzel, Ryan Lewis Kelly, Yan Wu, Arvind Rajpal, Richard Bonneau, Kyunghyun Cho, Stephen Ra, Vladimir Gligorijevic"
 year: ""
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "用于蛋白质序列采样与优化的帕累托最优组合能量模型"
   - "A Pareto-optimal compositional energy-based model for sampling and optimization of protein sequences"
+original_title: "A Pareto-optimal compositional energy-based model for sampling and optimization of protein sequences"
 ---
 ## 一句话总结
 

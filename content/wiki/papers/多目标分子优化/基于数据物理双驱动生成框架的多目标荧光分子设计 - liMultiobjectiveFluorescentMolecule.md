@@ -2,7 +2,7 @@
 type: paper
 citekey: "liMultiobjectiveFluorescentMolecule"
 zotero_key: "685269BH"
-title: "Multi-objective fluorescent molecule design with a data-physics dual-driven generative framework"
+title: "基于数据物理双驱动生成框架的多目标荧光分子设计"
 chinese_title: "基于数据物理双驱动生成框架的多目标荧光分子设计"
 authors: "Yanheng Li, Zhichen Pu, Lijiang Yang, Zehao Zhou, Yi Qin Gao"
 year: ""
@@ -18,6 +18,7 @@ tags:
 aliases:
   - "基于数据物理双驱动生成框架的多目标荧光分子设计"
   - "Multi-objective fluorescent molecule design with a data-physics dual-driven generative framework"
+original_title: "Multi-objective fluorescent molecule design with a data-physics dual-driven generative framework"
 ---
 ## 一句话总结
 
