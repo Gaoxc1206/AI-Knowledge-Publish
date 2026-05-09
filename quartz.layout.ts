@@ -64,13 +64,13 @@ const knowledgeExplorerOptions = {
     }
 
     if (filePath.includes("/wiki/papers/")) {
-      node.displayName = `论文 | ${year}${name}`
-    } else if (filePath.includes("/wiki/concepts/")) {
-      node.displayName = `概念 | ${name}`
-    } else if (filePath.includes("/wiki/methods/")) {
-      node.displayName = `方法 | ${name}`
-    } else if (filePath.includes("/wiki/questions/")) {
-      node.displayName = `问题 | ${name}`
+      node.displayName = `${year}${name}`
+    } else if (
+      filePath.includes("/wiki/concepts/") ||
+      filePath.includes("/wiki/methods/") ||
+      filePath.includes("/wiki/questions/")
+    ) {
+      node.displayName = name
     }
     return node
   },
