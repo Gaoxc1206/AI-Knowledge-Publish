@@ -1,0 +1,12 @@
+.DS_Store
+.gitignore
+node_modules
+quartz-serve.log
+public
+prof
+tsconfig.tsbuildinfo
+.obsidian
+.quartz-cache
+private/
+.replit
+replit.nix
