@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "tanDistributionalMultiobjectiveBlackbox2025"
-zotero_key: "JZF5T2PK"
 title: "扩散推理时多目标生成的分布式多目标黑箱优化"
 chinese_title: "扩散推理时多目标生成的分布式多目标黑箱优化"
 authors: "Kim Yong Tan, Yueming Lyu, Ivor Tsang, Yew-Soon Ong"
@@ -10,7 +9,6 @@ venue: ""
 doi: "10.48550/ARXIV.2510.26278"
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025.pdf"
 status: imported
 reading_status: inbox
 tags:

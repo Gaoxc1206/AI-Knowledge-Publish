@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "chenMultiObjectiveGuidedDiscreteFlow"
-zotero_key: "UFNTEBG3"
 title: "面向可控生物序列设计的多目标引导离散流匹配"
 chinese_title: "面向可控生物序列设计的多目标引导离散流匹配"
 authors: "Tong Chen, Yinuo Zhang, Sophia Tang, Pranam Chatterjee"
@@ -10,7 +9,6 @@ venue: ""
 doi: ""
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow.pdf"
 status: imported
 reading_status: inbox
 tags:

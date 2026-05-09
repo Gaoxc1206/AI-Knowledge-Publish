@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "heParetoMultiObjectiveAlignment2025"
-zotero_key: "7ZC4BA4C"
 title: "语言模型的帕累托多目标对齐"
 chinese_title: "语言模型的帕累托多目标对齐"
 authors: "Qiang He, Setareh Maghsudi"
@@ -10,7 +9,6 @@ venue: ""
 doi: "10.48550/ARXIV.2508.07768"
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/2025 - 语言模型的帕累托多目标对齐 - heParetoMultiObjectiveAlignment2025.pdf"
 status: imported
 reading_status: inbox
 tags:

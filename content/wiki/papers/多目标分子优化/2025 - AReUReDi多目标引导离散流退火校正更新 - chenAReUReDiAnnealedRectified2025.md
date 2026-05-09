@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "chenAReUReDiAnnealedRectified2025"
-zotero_key: "C4JQIKVC"
 title: "AReUReDi多目标引导离散流退火校正更新"
 chinese_title: "AReUReDi多目标引导离散流退火校正更新"
 authors: "Tong Chen, Yinuo Zhang, Pranam Chatterjee"
@@ -10,7 +9,6 @@ venue: ""
 doi: "10.48550/ARXIV.2510.00352"
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/2025 - AReUReDi多目标引导离散流退火校正更新 - chenAReUReDiAnnealedRectified2025.pdf"
 status: imported
 reading_status: inbox
 tags:

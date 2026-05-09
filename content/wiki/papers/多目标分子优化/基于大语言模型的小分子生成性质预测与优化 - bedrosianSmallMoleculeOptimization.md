@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "bedrosianSmallMoleculeOptimization"
-zotero_key: "VIAUR6RC"
 title: "基于大语言模型的小分子生成性质预测与优化"
 chinese_title: "基于大语言模型的小分子生成性质预测与优化"
 authors: "Menua Bedrosian, Philipp Guevorguian, Tigran Fahradyan"
@@ -10,7 +9,6 @@ venue: ""
 doi: ""
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization.pdf"
 status: imported
 reading_status: inbox
 tags:

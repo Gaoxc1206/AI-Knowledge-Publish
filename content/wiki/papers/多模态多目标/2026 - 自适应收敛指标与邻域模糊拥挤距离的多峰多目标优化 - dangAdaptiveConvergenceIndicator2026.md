@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "dangAdaptiveConvergenceIndicator2026"
-zotero_key: "WNGVFH43"
 title: "自适应收敛指标与邻域模糊拥挤距离的多峰多目标优化"
 chinese_title: "自适应收敛指标与邻域模糊拥挤距离的多峰多目标优化"
 authors: "Qianlong Dang, Xiaochuan Gao, Baosheng Li, Tao Zhan, Maoguo Gong, Xiaoyu He"
@@ -10,7 +9,6 @@ venue: "IEEE Transactions on Emerging Topics in Computational Intelligence"
 doi: "10.1109/TETCI.2026.3684051"
 zotero_collections:
   - "多模态多目标"
-source_pdf: "raw/zotero/pdfs/多模态多目标/2026 - 自适应收敛指标与邻域模糊拥挤距离的多峰多目标优化 - dangAdaptiveConvergenceIndicator2026.pdf"
 status: imported
 reading_status: inbox
 tags:

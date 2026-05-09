@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "tagasovskaParetooptimalCompositionalEnergybased"
-zotero_key: "4ZFZ7IFK"
 title: "用于蛋白质序列采样与优化的帕累托最优组合能量模型"
 chinese_title: "用于蛋白质序列采样与优化的帕累托最优组合能量模型"
 authors: "Nataša Tagasovska, Nathan C Frey, Andreas Loukas, Isidro Hötzel, Ryan Lewis Kelly, Yan Wu, Arvind Rajpal, Richard Bonneau, Kyunghyun Cho, Stephen Ra, Vladimir Gligorijevic"
@@ -10,7 +9,6 @@ venue: ""
 doi: ""
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/用于蛋白质序列采样与优化的帕累托最优组合能量模型 - tagasovskaParetooptimalCompositionalEnergybased.pdf"
 status: imported
 reading_status: inbox
 tags:

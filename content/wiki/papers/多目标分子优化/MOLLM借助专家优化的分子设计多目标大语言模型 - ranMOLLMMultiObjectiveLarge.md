@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "ranMOLLMMultiObjectiveLarge"
-zotero_key: "Y7RIMRN8"
 title: "MOLLM借助专家优化的分子设计多目标大语言模型"
 chinese_title: "MOLLM借助专家优化的分子设计多目标大语言模型"
 authors: "Nian Ran, Yue Wang, Richard Allmendinger"
@@ -10,7 +9,6 @@ venue: ""
 doi: ""
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/MOLLM借助专家优化的分子设计多目标大语言模型 - ranMOLLMMultiObjectiveLarge.pdf"
 status: imported
 reading_status: inbox
 tags:

@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "liMultiobjectiveFluorescentMolecule"
-zotero_key: "685269BH"
 title: "基于数据物理双驱动生成框架的多目标荧光分子设计"
 chinese_title: "基于数据物理双驱动生成框架的多目标荧光分子设计"
 authors: "Yanheng Li, Zhichen Pu, Lijiang Yang, Zehao Zhou, Yi Qin Gao"
@@ -10,7 +9,6 @@ venue: ""
 doi: ""
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule.pdf"
 status: imported
 reading_status: inbox
 tags:

@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "yongStudyEHVIVs2025"
-zotero_key: "2L4MI73L"
 title: "EHVI与固定标量化在分子设计中的比较研究"
 chinese_title: "EHVI与固定标量化在分子设计中的比较研究"
 authors: "Anabel Yong, Austin Tripp, Layla Hosseini-Gerami, Brooks Paige"
@@ -10,7 +9,6 @@ venue: ""
 doi: "10.48550/ARXIV.2507.13704"
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/2025 - EHVI与固定标量化在分子设计中的比较研究 - yongStudyEHVIVs2025.pdf"
 status: imported
 reading_status: inbox
 tags:

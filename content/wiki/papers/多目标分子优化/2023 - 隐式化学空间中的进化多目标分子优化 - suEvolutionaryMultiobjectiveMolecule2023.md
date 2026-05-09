@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "suEvolutionaryMultiobjectiveMolecule2023"
-zotero_key: "XDFQVXB6"
 title: "隐式化学空间中的进化多目标分子优化"
 chinese_title: "隐式化学空间中的进化多目标分子优化"
 authors: "Yansen Su, Xin Xia, Chunhou Zheng, Yiping Liu, Qingwen Wu, Xiangxiang Zeng"
@@ -10,7 +9,6 @@ venue: ""
 doi: "10.21203/rs.3.rs-2798803/v1"
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/2023 - 隐式化学空间中的进化多目标分子优化 - suEvolutionaryMultiobjectiveMolecule2023.pdf"
 status: imported
 reading_status: inbox
 tags:

@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "ahrariEvolutionStrategyAdaptive2025"
-zotero_key: "SX6WKSDC"
 title: "用于多峰多目标优化的自适应适应度共享进化策略"
 authors: "Ali Ahrari, Ruhul Sarker, Mike Preuss"
 year: "2025"
@@ -9,7 +8,6 @@ venue: "IEEE Transactions on Evolutionary Computation"
 doi: "10.1109/TEVC.2025.3609902"
 zotero_collections:
   - "多模态多目标"
-source_pdf: "raw/zotero/pdfs/多模态多目标/2025 - 用于多峰多目标优化的自适应适应度共享进化策略 - ahrariEvolutionStrategyAdaptive2025.pdf"
 status: imported
 reading_status: inbox
 tags:

@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "xiaMoleculeOptimizationMultiobjective"
-zotero_key: "WVGSF6PD"
 title: "面向隐式化学空间的多目标进化分子优化方法"
 chinese_title: "面向隐式化学空间的多目标进化分子优化方法"
 authors: "Xin Xia, Yansen Su, Chunhou Zheng, Xiangxiang Zeng"
@@ -10,7 +9,6 @@ venue: ""
 doi: ""
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/面向隐式化学空间的多目标进化分子优化方法 - xiaMoleculeOptimizationMultiobjective.pdf"
 status: imported
 reading_status: inbox
 tags:

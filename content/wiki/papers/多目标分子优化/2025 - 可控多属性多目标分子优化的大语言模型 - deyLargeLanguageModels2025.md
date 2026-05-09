@@ -1,7 +1,6 @@
 ---
 type: paper
 citekey: "deyLargeLanguageModels2025"
-zotero_key: "X2QIHFRH"
 title: "可控多属性多目标分子优化的大语言模型"
 chinese_title: "可控多属性多目标分子优化的大语言模型"
 authors: "Vishal Dey, Xiao Hu, Xia Ning"
@@ -10,7 +9,6 @@ venue: ""
 doi: "10.48550/ARXIV.2505.23987"
 zotero_collections:
   - "多目标分子优化"
-source_pdf: "raw/zotero/pdfs/多目标分子优化/2025 - 可控多属性多目标分子优化的大语言模型 - deyLargeLanguageModels2025.pdf"
 status: imported
 reading_status: inbox
 tags:
