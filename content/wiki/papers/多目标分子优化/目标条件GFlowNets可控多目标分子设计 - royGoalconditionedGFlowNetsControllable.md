@@ -20,303 +20,162 @@ original_title: "Goal-conditioned GFlowNets for Controllable Multi-Objective Mol
 ---
 ## 一句话总结
 
-《Goal-conditioned GFlowNets for Controllable Multi-Objective Molecular Design》提出用 Goal-conditioned GFlowNets 替代传统 preference-conditioning / 标量化偏好条件化方法，在 多目标分子设计 中通过显式指定目标区域（focus region）来更可控、更均匀地探索 Pareto front。
+**Goal-conditioned GFlowNets for Controllable Multi-Objective Molecular Design** 提出用目标区域（focus region）而不是偏好权重标量化来条件化 GFlowNets，使分子生成模型在复杂或凹形 Pareto front 上能更均匀、更可控地覆盖多目标折中解。
 
 ## 研究问题
 
-本文关注 in-silico molecular design 中的 多目标优化 问题：在药物分子设计中，候选分子通常需要同时优化多个性质，例如：
+药物分子设计通常需要同时优化多个属性，例如靶点结合能、类药性、可合成性、毒性、EC50 等。传统多目标分子生成方法常把多个目标通过偏好向量加权求和，转化为单目标奖励，再训练条件生成模型。然而，当真实 Pareto front 呈现凹形或更复杂形状时，基于标量化的 preference-conditioned 方法容易偏向目标空间的极端点，导致中间折中区域覆盖不足。
 
-- 与靶点的 binding energy
-- synthesizability / synthetic accessibility
-- toxicity
-- EC50
-- drug-likeness / QED
-
-已有方法常将多目标问题通过 scalarization 转换为偏好条件化的单目标问题，即给不同目标分配权重，然后优化加权和。但当目标空间中的 Pareto front 呈现非凸或凹形结构时，这种方法容易偏向目标空间的极端点，难以均匀覆盖整个 Pareto front。
-
-本文的问题是：
-
-> 如何训练一个条件式分子生成模型，使其不仅能生成高质量分子，还能根据用户指定的目标区域，在整个 Pareto front 上更均匀、更可控地采样？
+本文要解决的问题是：如何训练一个多目标分子生成模型，使用户能够明确指定想要的目标空间区域，并且在整个 Pareto front 上获得更均匀、更可控的候选分子分布。
 
 ## 背景与动机
 
-### 多目标分子设计的挑战
-
-分子设计天然是 multi-objective optimization 问题。不存在一个分子在所有性质上都优于其他分子，因此通常需要寻找一组 Pareto optimal 解。所有 Pareto optimal 解在目标空间中的投影构成 Pareto front。
-
-传统方法中常用 scalarization：
+多目标优化问题可以表示为在分子空间 $\mathcal{X}$ 上最大化 $K$ 个目标：
 
 $$
-R_w(x)=\sum_k w_k r_k,\quad \sum_k w_k=1,\quad w_k\ge 0
+\mathbf{R}(x) \in \mathbb{R}^K
 $$
 
-其中 $w$ 是 preference vector，用来表示用户对不同目标的偏好。
+通常不存在一个分子在所有目标上都优于其他分子，因此解集由 Pareto optimal points 构成，其在目标空间中的投影形成 Pareto front。
 
-这种方法的优势是容易与现有深度生成模型结合；但问题在于，标量化后的最优解分布强烈依赖 Pareto front 的形状。对于凹形 Pareto front，标量化方法可能更容易找到极端区域，而不是均匀覆盖整个前沿。
-
-### GFlowNets 的相关背景
-
-GFlowNet / Generative Flow Network 是一种用于训练能量型生成模型的方法，目标是学习：
+已有的 Multi-objective GFlowNets 使用 preference-conditioning：给定偏好向量 $w$，将多个目标线性标量化为：
 
 $$
-p_\theta(x)\propto R(x)
+R _ {w} (x) = \sum_ {k} w _ {k} r _ {k}, \quad \sum_ {k} w _ {k} = 1, \quad w _ {k} \geq 0
 $$
 
-即奖励越高的对象，被采样的概率越大。
+训练时从 Dirichlet 分布等分布中采样不同偏好向量，使模型学会根据偏好强调不同目标。该方式在凸 Pareto front 上较有效，但在凹形或复杂 Pareto front 上，线性标量化可能无法稳定覆盖中间区域，生成结果容易滑向目标空间两端。
 
-GFlowNets 适合：
-
-- 离散组合对象生成
-- 分子图生成
-- 多模态分布建模
-- 多样化候选生成
-
-在分子设计中，GFlowNets 的优势是能够从高奖励区域中采样多个多样化候选，而不是只寻找单个最优解。
-
-已有的 Multi-objective GFlowNets 使用 preference-conditioning：将 preference vector $w$ 输入模型，并用加权奖励训练模型，使模型能根据偏好生成不同分子。
-
-本文认为：preference-conditioning 仍然是一种软约束，不能保证模型在用户真正关心的目标区域中采样；因此提出用 goal-conditioning 显式约束生成目标区域。
+本文的动机是：与其用偏好权重“软性”引导模型，不如直接把用户想要的目标空间区域作为条件，要求模型生成落入该区域的分子，从而提升可控性与 Pareto front 覆盖均匀性。
 
 ## 核心思想
 
-本文的核心思想是：
+本文提出 **goal-conditioned GFlowNets**。核心做法是把多目标分子生成改写为目标条件生成任务：给定一个目标区域 $g$，模型应生成奖励向量落入该区域的分子。
 
-> 与其告诉模型“我更偏好哪些目标”，不如直接告诉模型“我希望生成的分子落在目标空间中的哪个区域”。
-
-具体来说，作者借鉴 goal-conditioned reinforcement learning，将 GFlowNet 条件化在一个目标区域 $g$ 上。模型的目标不是最大化某个标量化偏好奖励，而是生成 reward vector 落入指定 goal region / focus region 的分子。
-
-本文定义的 goal / focus region 是目标空间中的一个锥形区域。给定目标方向 $d_g$ 和余弦相似度阈值 $c_g$，若分子的 reward vector $r$ 满足：
+目标区域被定义为目标空间中的一个锥形 focus region。给定目标方向 $d_g$ 和余弦相似度阈值 $c_g$，如果分子奖励向量 $r$ 与 $d_g$ 的余弦相似度不低于阈值，则认为该分子满足目标：
 
 $$
-\frac{r\cdot d_g}{||r||\cdot ||d_g||}\ge c_g
+g := \left\{r \in \mathbb{R}^{K} : \frac{r \cdot d_{g}}{||r|| \cdot ||d_{g}||} \geq c_{g}\right\}
 $$
 
-则认为该分子达到了目标 $g$。
-
-其对应奖励为：
+对应的 goal-conditioned 奖励为：
 
 $$
-R_g(x)=
+R _ {g} (x) =
 \begin{cases}
-\sum_k r_k, & r\in g \\
-0, & otherwise
+\sum_ {k} r _ {k}, & \text{if } r \in g \\
+0, & \text{otherwise}
 \end{cases}
 $$
 
-也就是说，只有落入指定 focus region 的分子才有正奖励；否则奖励为 0。
-
-这种 hard constraint 使模型具有更强的可控性：用户可以指定想探索的目标方向，模型则尽量在该区域内生成分子。
+这种 hard constraint 让模型直接学习“生成落入指定目标区域的分子”，因此可以通过采样不同目标方向来覆盖 Pareto front 的不同部分。为缓解硬约束导致的奖励稀疏问题，作者使用 replay buffer、hindsight experience replay，并进一步引入 reward shaping 使模型偏向 focus region 中心。
 
 ## 方法框架
 
-本文方法由以下几个部分组成：
+本文方法建立在 fragment-based molecule generation 的 GFlowNet 框架上。模型从空图状态出发，逐步添加分子片段节点或边，直到选择 STOP 动作形成完整分子。状态图中加入一个 fully-connected virtual node，其特征嵌入来自条件向量，例如 preference vector $w$ 或 goal direction $d_g$。图状态由 Graph Transformer 处理，输出动作分布。
 
-### 1. Goal-conditioned GFlowNets
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-01.jpg]]
 
-模型输入包括：
+图 1 展示了 GFlowNet 分子生成器如何在目标空间中根据 focus region 生成分子。左侧示意 GFlowNet 逐步构造分子；右侧说明单个 focus region 可以让模型集中生成某一区域的分子，而多个 focus region 可以覆盖更宽的目标空间区域。
 
-- 当前分子构造状态
-- 条件向量：goal direction $d_g$，或与 goal region 相关的信息
+方法包含三个关键组成：
 
-模型输出：
+1. **Goal-conditioned GFlowNets**  
+   将目标方向 $d_g$ 和 focus region 作为条件输入，要求生成分子的奖励向量落入指定区域。
 
-- GFlowNet forward policy，用于逐步构造分子
+2. **Replay buffer 与 hindsight experience replay**  
+   由于 hard constraint 会让大量样本奖励为 0，作者用 replay buffer 稳定训练，并对未达到原目标的轨迹进行目标重标注，使其仍能提供学习信号。
 
-目标：
+3. **Learned Goal Distribution / Tab-GS**  
+   并非所有目标方向都可行，尤其目标数增加时不可行区域会增多。作者提出 tabular goal-sampler（Tab-GS）维护每个目标方向可行性的简单统计信念，降低不可行方向的采样概率，提高样本效率。
 
-- 学习在给定 goal region 下，从对应高奖励区域采样分子
+在未来工作部分，作者还提出用 GFlowNet-based Goal Sampler（GFN-GS）替代 Tab-GS，使目标方向逐维生成，以减少 Tab-GS 参数量随目标数指数增长的问题。
 
-与 preference-conditioning 的差异：
+## 算法流程
 
-| 方法 | 条件输入 | 约束形式 | 奖励形式 | 潜在问题 |
-|---|---|---|---|---|
-| preference-conditioned GFN | preference vector $w$ | 软约束 | $\sum_k w_k r_k$ | 凹形 Pareto front 上易偏向极端点 |
-| goal-conditioned GFN | goal direction $d_g$ / focus region | 硬约束 | 区域内为 $\sum_k r_k$，区域外为 0 | 不可行 goal 会降低采样效率 |
+整体训练流程可概括为：
 
-### 2. Focus region
+1. 采样一个条件向量：
+   - preference-conditioned baseline：采样偏好向量 $w \sim Dirichlet(1)$；
+   - goal-conditioned GFN：采样目标方向 $d_g$，来自 Uniform-GS 或 Tab-GS。
 
-本文使用目标方向 $d_g$ 与 cosine similarity threshold $c_g$ 定义 focus region。
+2. 将条件向量嵌入到分子图状态中的 virtual node。
 
-focus region 可理解为目标空间中的一个锥形区域，表示用户希望探索的一类 trade-off。
+3. GFlowNet 从空图状态 $s_0$ 开始，逐步选择动作：
+   - 添加片段节点；
+   - 添加片段间边；
+   - 或选择 STOP 结束生成。
 
-例如在两个目标 $(seh, qed)$ 中：
+4. 对生成分子计算多目标奖励向量 $r$。
 
-- 一个 goal direction 可偏向 QED
-- 一个 goal direction 可偏向 sEH binding score
-- 一个 goal direction 可位于二者之间，表示折中解
+5. 对 goal-conditioned GFN，判断 $r$ 是否落入 focus region：
+   - 若满足目标区域，奖励为各目标之和或 shaped reward；
+   - 若不满足，则奖励为 0。
 
-### 3. Replay buffer 与 hindsight experience replay
+6. 使用 trajectory balance criterion 训练 GFlowNet 的 forward policy $P_F$ 和 partition function estimator $Z$。
 
-由于 hard constraint 会使奖励更稀疏，目标区域外的样本奖励为 0，训练可能不稳定。因此作者使用：
+7. 将轨迹加入 replay buffer，并对部分失败轨迹执行 hindsight relabeling。
 
-- replay buffer
-- hindsight experience replay
+8. 对 Tab-GS：
+   - 训练前 25%：均匀采样目标方向；
+   - 从 25% 开始：根据目标方向是否已有成功样本调整采样权重；
+   - 到 75% 后：停止更新 goal-sampler，使目标分布固定，便于模型 fine-tuning。
 
-具体做法：
-
-- 保存过去采样的 trajectories
-- 从 replay buffer 中采样训练数据
-- 对部分没有达到原 goal 的轨迹进行重新标注：如果它落入了另一个 goal region，则将其作为该 goal 的成功样本来学习
-
-这有助于缓解奖励稀疏和训练不稳定问题。
-
-### 4. Reward sharpening / limit reward coefficient
-
-为了让模型更倾向于生成 focus region 中心附近的分子，而不是靠近边界的分子，作者引入 reward coefficient $\alpha_g$：
+奖励 shaping 形式为：
 
 $$
-R_g(x)=
+R _ {g} (x) =
 \begin{cases}
-\alpha_g\sum_k r_k, & r\in g \\
-0, & otherwise
+\alpha_ {g} \sum_ {k} r _ {k}, & \text{if } r \in g \\
+0, & \text{otherwise}
 \end{cases}
 $$
 
 其中：
 
 $$
-\alpha_g=
+\alpha_ {g} =
 \left(
-\frac{r\cdot d_g}{||r||\cdot ||d_g||}
-\right)^{\frac{\log m_g}{\log c_g}}
+\frac {r \cdot d _ {g}}{| | r | | \cdot | | d _ {g} | |}
+\right) ^ {\frac {\log m _ {g}}{\log c _ {g}}}
 $$
 
-当样本位于 focus region 边界时，奖励衰减到 $m_g$ 倍。论文中使用的超参数包括：
-
-- focus region cosine similarity threshold $c_g=0.98$
-- limit reward coefficient $m_g=0.20$
-
-该设计增强了 goal-reaching accuracy。
-
-### 5. Learned Goal Distribution / Tab-GS
-
-hard constraint 的问题是：并非所有目标方向都是可行的。某些 goal region 中可能没有高质量分子，或者模型很难找到对应分子。如果仍然均匀采样这些 infeasible goals，会浪费大量采样。
-
-为此，作者提出 Tabular Goal-Sampler / Tab-GS：
-
-- 维护每个 goal direction 的可行性统计
-- 训练初期均匀采样 goal directions
-- 训练到 25% 后，根据已观察到的成功情况降低不可行方向的采样概率
-- 训练到 75% 后停止更新 goal sampler，使 goal distribution 固定，便于模型微调
-
-未归一化采样权重为：
-
-$$
-f(d_g)=
-\begin{cases}
-1, & d_g \text{ 从未被采样} \\
-1, & 存在样本最接近该 } d_g \\
-0.1, & otherwise
-\end{cases}
-$$
-
-该方法用于 3 目标和 4 目标任务，以提高采样效率。
-
-## 算法流程
-
-根据论文内容，goal-conditioned GFN 的整体流程可以整理为：
-
-1. 定义多目标奖励向量：
-   
-$$
-R(x)\in \mathbb{R}^K
-$$
-
-2. 构造 goal region：
-   - 采样或选择目标方向 $d_g$
-   - 设置 cosine similarity threshold $c_g$
-   - 定义 focus region：
-     
-$$
-g := \{r\in \mathbb{R}^K:\frac{r\cdot d_g}{||r||\cdot ||d_g||}\ge c_g\}
-$$
-
-3. 将 goal direction / conditioning vector 输入 GFlowNet。
-
-4. GFlowNet 从空图状态 $s_0$ 开始逐步构造分子：
-   - 添加 fragment node
-   - 添加 edge
-   - 或选择 STOP action
-
-5. 得到完整分子 $x$，计算 reward vector $r(x)$。
-
-6. 判断 $r(x)$ 是否落入 focus region：
-   - 若在区域内，奖励为 $\sum_k r_k$，或经过 $\alpha_g$ 调整后的奖励
-   - 若在区域外，奖励为 0
-
-7. 使用 Trajectory Balance 训练 GFlowNet。
-
-8. 使用 replay buffer 稳定训练。
-
-9. 使用 hindsight relabeling 重用失败轨迹。
-
-10. 对高维目标任务，使用 Tab-GS 学习更有效的 goal direction 分布。
+该系数鼓励模型生成更接近 focus region 中心的样本，从而提升 goal-reaching accuracy。
 
 ## 实验设置
 
-### 任务
+本文主要在 fragment-based molecule generation 任务上评估方法。分子由预定义分子片段集合组装而成。使用的目标包括：
 
-主要实验是基于 fragment-based molecule generation 的多目标分子生成任务。
+- **seh**：sEH binding energy prediction，由公开预训练模型给出，并除以 8 以使数值大致落在 0 到 1；
+- **qed**：Quantitative Estimate of Drug-likeness，已在 0 到 1 范围内；
+- **sa**：synthetic accessibility heuristic；
+- **mw**：对分子量超过 300 的惩罚。
 
-分子由预定义 molecular fragments 逐步组合而成。状态表示为图：
+实验包括两类：
 
-- 节点表示 fragment
-- 边表示 fragment 间连接
-- 边带有 attachment point 属性
-- 增加一个 fully-connected virtual node，其特征包含 conditioning information
+1. **二维复杂目标地形实验**  
+   在 seh 与 qed 两目标任务上人为设置不可达区域，使目标空间形成 unrestrained、restrained-convex、concave、concave-sharp、multi-concave、4-dots、16-dots 等不同地形，用于测试算法在复杂 Pareto front 下的覆盖能力。
 
-模型使用 Graph Transformer 处理分子图状态。
+2. **目标数量增加实验**  
+   分别测试 2、3、4 个目标下 preference-conditioned GFN 与 goal-conditioned GFN 的表现。
 
-### 目标
+主要评价指标：
 
-主要使用以下目标：
+- **IGD（Inverted Generational Distance，越低越好）**：衡量生成样本对参考 Pareto front 的覆盖深度和宽度；
+- **PC-ent（Pareto-Clusters Entropy，越高越好）**：衡量样本沿 Pareto front 的分布均匀性；
+- **Avg-PCC（越高越好）**：计算条件向量与最终奖励向量之间的平均 Pearson 相关系数，用于衡量可控性。
 
-1. QED
-   - drug-likeness heuristic
-   - 数值本身在 0 到 1 之间
-
-2. sEH binding energy prediction
-   - 使用预训练公开模型
-   - 输出除以 8，使其大致落在 0 到 1 范围内
-
-3. synthetic accessibility / SA
-   - 用于 3 目标任务
-
-4. molecular weight penalty / MW penalty
-   - 对分子量超过 300 的化合物施加惩罚
-   - 用于 4 目标任务
-
-### 对比方法
-
-主要对比：
-
-- preference-conditioned GFN
-- goal-conditioned GFN
-
-preference-conditioned GFN 使用：
-
-$$
-w\sim Dirichlet(1)
-$$
-
-goal-conditioned GFN 使用：
-
-- Section 4.2：Uniform-GS
-- Section 4.3：Tab-GS
-
-### 训练细节
-
-论文给出的主要超参数包括：
+关键训练超参数包括：
 
 | 超参数 | Goal-conditioned GFN | Preference-conditioned GFN |
 |---|---:|---:|
 | Batch size | 64 | 64 |
 | GFN temperature parameter $\beta$ | 60 | 60 |
-| Number of training steps | 40,000 | 40,000 |
-| Number of GNN layers | 2 | 2 |
+| Training steps | 40,000 | 40,000 |
+| GNN layers | 2 | 2 |
 | GNN node embedding size | 256 | 256 |
 | Learning rate for $P_F$ | $10^{-4}$ | $10^{-4}$ |
-| Learning rate for $Z$-estimator | $10^{-3}$ | $10^{-3}$ |
+| Learning rate for Z-estimator | $10^{-3}$ | $10^{-3}$ |
 | Sampling moving average $\tau$ | 0.95 | 0.95 |
 | Random action probability $\epsilon$ | 0.01 | 0.01 |
 | Focus region threshold $c_g$ | 0.98 | - |
@@ -324,291 +183,175 @@ goal-conditioned GFN 使用：
 | Replay buffer length | 100,000 | - |
 | Replay buffer warmups | 1,000 | - |
 | Hindsight ratio | 0.30 | - |
-
-### 评价指标
-
-作者强调单一指标无法完整刻画多目标生成分布，因此使用三个指标：
-
-#### 1. Inverted Generational Distance / IGD
-
-衡量生成样本集合对参考 Pareto front 的覆盖程度：
-
-$$
-IGD(S,P)=\frac{1}{|P|}\sum_{p\in P}\min_{s\in S}||s-p||_2^2
-$$
-
-越低越好。
-
-#### 2. Pareto-Clusters Entropy / PC-ent
-
-衡量生成样本沿 Pareto front 分布是否均匀。
-
-将样本分配到最近的 Pareto reference point，对 cluster histogram 计算熵。越高表示分布越均匀。
-
-#### 3. Average Pearson Correlation Coefficient / Avg-PCC
-
-衡量条件向量与实际 reward vector 之间的相关性，用于评估可控性：
-
-$$
-Avg\text{-}PCC(S,C)=\frac{1}{K}\sum_{k=1}^K PCC(s_{\cdot,k},c_{\cdot,k})
-$$
-
-越高表示条件控制越有效。
+| 条件采样分布 | Uniform-GS 或 Tab-GS | $Dirichlet(1)$ |
 
 ## 主要结果
 
-### 1. 在复杂目标空间中，goal-conditioned GFN 更均匀、更可控
+在复杂二维目标地形中，preference-conditioned GFN 在凸 Pareto front 上能够较好求解，但在凹形和更复杂目标地形中，生成样本明显偏向极端区域；goal-conditioned GFN 通过显式采样不同目标方向，可以在整个对角方向上覆盖目标空间，且更均匀、更可控。
 
-作者构造了多个二目标 $(seh,qed)$ 任务变体，通过人为设置不可达区域来模拟不同形状的 Pareto front，包括：
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-02.jpg]]
 
-- unrestrained
-- restrained-convex
-- concave
-- concave-sharp
-- multi-concave
-- 4-dots
-- 16-dots
+图 2 对比了 preference-conditioned GFN 与 goal-conditioned GFN 在多种二维复杂目标地形上的生成结果。颜色表示偏好向量或目标方向的角度；在 concave 等复杂场景中，goal-conditioned 方法明显比 preference-conditioned 方法更能覆盖中间折中区域。
 
-结果显示：
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-03.jpg]]
 
-- preference-conditioned GFN 在 convex Pareto front 上表现较好
-- 但在 concave 或更复杂目标空间中，容易偏向极端点
-- goal-conditioned GFN 能显式针对不同 trade-off direction 采样，因此能覆盖更完整的目标空间
+图 3 展示了不同目标数下的定量比较表。随着目标数量从 2 增加到 4，goal-conditioned GFN 在 Avg-PCC 和 PC-ent 上保持明显优势，说明其可控性和 Pareto front 覆盖均匀性更好。
 
-### 2. IGD 上两者相近，但 PC-ent 和 Avg-PCC 上 goal-conditioned GFN 明显更好
+二维复杂目标地形上的结果如下：
 
-Table 1 显示，在多个复杂二目标 landscape 中：
+| 指标 | 方法 | unrestrained | restrained-convex | concave | concave-sharp | multi-concave | 4-dots | 16-dots |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| IGD ↓ | pref-cond | 0.087 ± 0.001 | 0.316 ± 0.002 | 0.272 ± 0.001 | 0.180 ± 0.002 | 0.152 ± 0.006 | 0.130 ± 0.011 | 0.109 ± 0.009 |
+| IGD ↓ | goal-cond | 0.095 ± 0.002 | 0.310 ± 0.001 | 0.266 ± 0.001 | 0.197 ± 0.002 | 0.173 ± 0.004 | 0.134 ± 0.002 | 0.115 ± 0.004 |
+| Avg-PCC ↑ | pref-cond | 0.905 ± 0.001 | 0.673 ± 0.009 | 0.830 ± 0.002 | 0.855 ± 0.004 | 0.700 ± 0.009 | 0.768 ± 0.038 | 0.770 ± 0.011 |
+| Avg-PCC ↑ | goal-cond | 0.967 ± 0.002 | 0.953 ± 0.001 | 0.926 ± 0.002 | 0.915 ± 0.001 | 0.946 ± 0.004 | 0.928 ± 0.002 | 0.948 ± 0.001 |
+| PC-ent ↑ | pref-cond | 2.170 ± 0.004 | 1.913 ± 0.019 | 1.563 ± 0.009 | 1.629 ± 0.002 | 1.867 ± 0.015 | 1.521 ± 0.022 | 1.610 ± 0.019 |
+| PC-ent ↑ | goal-cond | 2.472 ± 0.006 | 2.242 ± 0.013 | 1.997 ± 0.002 | 1.918 ± 0.001 | 2.380 ± 0.020 | 2.270 ± 0.025 | 2.262 ± 0.014 |
 
-- IGD：两种方法差距不大
-- Avg-PCC：goal-conditioned GFN consistently 更高
-- PC-ent：goal-conditioned GFN consistently 更高
+可以看到，IGD 上两者差距不总是很大，因为 IGD 只关注每个参考点最近的一个样本；即使 preference-conditioned 方法只在中间区域生成少量样本，也可能得到相近 IGD。但在 Avg-PCC 和 PC-ent 上，goal-conditioned GFN 显著更好，表明其生成分布更受条件控制，且沿 Pareto front 更均匀。
 
-这说明：
+目标数增加实验结果如下：
 
-- preference-conditioned GFN 可能仍然生成少量中间区域样本，因此 IGD 不一定很差
-- 但其整体分布不均匀，也不够可控
-- goal-conditioned GFN 在可控性和 Pareto front 均匀覆盖方面明显更好
-
-部分结果如下：
-
-| Landscape | 方法 | IGD ↓ | Avg-PCC ↑ | PC-ent ↑ |
+| 指标 | 方法 | 2 objectives | 3 objectives | 4 objectives |
 |---|---|---:|---:|---:|
-| unrestrained | pref-cond | 0.087 | 0.905 | 2.170 |
-| unrestrained | goal-cond | 0.095 | 0.967 | 2.472 |
-| concave | pref-cond | 0.272 | 0.830 | 1.563 |
-| concave | goal-cond | 0.266 | 0.926 | 1.997 |
-| multi-concave | pref-cond | 0.152 | 0.700 | 1.867 |
-| multi-concave | goal-cond | 0.173 | 0.946 | 2.380 |
-| 16-dots | pref-cond | 0.109 | 0.770 | 1.610 |
-| 16-dots | goal-cond | 0.115 | 0.948 | 2.262 |
+| IGD ↓ | pref-cond | 0.088 ± 0.001 | 0.218 ± 0.003 | 0.370 ± 0.000 |
+| IGD ↓ | goal-cond | 0.094 ± 0.004 | 0.199 ± 0.002 | 0.303 ± 0.001 |
+| Avg-PCC ↑ | pref-cond | 0.904 ± 0.002 | 0.775 ± 0.004 | 0.612 ± 0.002 |
+| Avg-PCC ↑ | goal-cond | 0.961 ± 0.001 | 0.909 ± 0.001 | 0.893 ± 0.002 |
+| PC-ent ↑ | pref-cond | 2.166 ± 0.007 | 3.775 ± 0.016 | 4.734 ± 0.004 |
+| PC-ent ↑ | goal-cond | 2.471 ± 0.001 | 4.571 ± 0.008 | 6.320 ± 0.009 |
 
-注：表中省略了 sem，完整数值见原文 Table 1。
+随着目标数增加，goal-conditioned GFN 的优势更明显，尤其在 Avg-PCC 与 PC-ent 上。这说明 goal-conditioning 更适合高维目标空间中的可控分子生成。
 
-### 3. 目标数量增加时，goal-conditioned GFN 仍保持优势
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-04.jpg]]
 
-作者进一步测试 2、3、4 个目标时的表现。结果显示 goal-conditioned GFN 在更高维目标空间中仍然具有更好的可控性和均匀性。
+图 4 展示了 Tab-GS 与 Uniform-GS 的学习曲线对比。对于 2 目标任务，两者差别较小；但在 3 和 4 目标任务中，Tab-GS 在训练 25% 后开始根据可行性采样目标方向，goal-reaching accuracy 出现明显提升，并进一步改善 IGD 和 PC-ent。
 
-Table 2 结果：
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-05.jpg]]
 
-| 目标数 | 方法 | IGD ↓ | Avg-PCC ↑ | PC-ent ↑ |
-|---|---|---:|---:|---:|
-| 2 objectives | pref-cond | 0.088 | 0.904 | 2.166 |
-| 2 objectives | goal-cond | 0.094 | 0.961 | 2.471 |
-| 3 objectives | pref-cond | 0.218 | 0.775 | 3.775 |
-| 3 objectives | goal-cond | 0.199 | 0.909 | 4.571 |
-| 4 objectives | pref-cond | 0.370 | 0.612 | 4.734 |
-| 4 objectives | goal-cond | 0.303 | 0.893 | 6.320 |
+图 5 是 2 目标任务的附加结果，对比 preference-conditioned 与 goal-conditioned 模型在目标分布、条件-奖励相关性和目标空间密度上的差异。goal-conditioned 方法生成的样本更均匀，并且条件向量与实际奖励之间相关性更清晰。
 
-这说明随着目标数增加，preference-conditioned GFN 的可控性下降明显，而 goal-conditioned GFN 配合 Tab-GS 能更好地维持控制能力。
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-06.jpg]]
 
-### 4. Replay buffer 对 goal-conditioned GFN 很重要
+图 6 是 3 目标任务的附加结果。相较 preference-conditioned 方法，goal-conditioned 方法在多对目标平面上的覆盖更均匀，并在条件控制上表现更强。
 
-附录实验显示，纯 on-policy 训练下 goal-conditioned GFN 更容易不稳定和 mode collapse。使用 replay buffer 后训练曲线更稳定。
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-07.jpg]]
 
-原因可能是 hard constraint 会导致不同 goal 下 reward landscape 变化剧烈，replay buffer 可以缓解训练不稳定。
+图 7 是 4 目标任务的附加结果。由于高维目标空间更难覆盖，goal-conditioned 方法相对 preference-conditioned 方法的均匀性和可控性优势更重要。
 
-### 5. Tab-GS 提高高维目标任务中的 goal-reaching accuracy
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-08.jpg]]
 
-附录 C.3 显示：
+图 8 对应论文附录中 2 目标任务的更多可视化面板，用于观察各目标维度上的样本分布、条件向量与奖励值的关系，以及目标对之间的密度分布。
 
-- 2 目标时 infeasible goals 较少，Uniform-GS 和 Tab-GS 差异不大
-- 3、4 目标时，Tab-GS 在训练 25% 后开始调整 goal sampling distribution，goal-reaching accuracy 立即改善
-- 这进一步提升 IGD 和 PC-ent
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-09.jpg]]
+
+图 9 进一步展示了 2 目标任务下不同条件模型的样本分布细节。对角线图反映单个目标维度上的奖励分布与条件控制关系，非对角线图反映目标对之间的分布密度或可控性。
+
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-10.jpg]]
+
+图 10 展示了 3 目标任务下的附加面板。该图用于辅助判断模型是否能同时在多个目标维度上保持样本分散性与条件可控性。
+
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-11.jpg]]
+
+图 11 展示了 4 目标任务下的附加可视化。随着目标维度增加，能够在不同目标对平面上保持稳定覆盖，是 goal-conditioned 方法的重要优势之一。
+
+![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/mineru-figure-12.jpg]]
+
+图 12 同样来自附录的高维目标实验可视化，用于补充确认模型在不同目标维度组合上的分布情况。当前解析文本未能精确恢复该图片对应的完整原始图号与图注，待补充原文/PDF 后确认。
 
 ## 创新点
 
-1. **将 goal-conditioned learning 引入 GFlowNets 多目标分子设计**
+1. **用目标区域替代偏好标量化**  
+   本文不是把多目标问题转化为加权单目标问题，而是直接让模型以目标空间中的 focus region 为条件，生成落入指定区域的分子。
 
-   本文不是通过 preference vector 做软偏好控制，而是显式定义目标空间中的 focus region，并训练 GFlowNet 在指定区域中采样。
+2. **提升复杂 Pareto front 上的可控覆盖**  
+   对于凹形或多段复杂 Pareto front，goal-conditioned GFN 能显式覆盖不同折中方向，避免 preference-conditioned 方法偏向极端点。
 
-2. **用 hard constraint 改善多目标生成的可控性**
+3. **引入 goal-reaching accuracy 作为可控性监控信号**  
+   由于目标区域被明确定义，可以直接统计生成样本是否落入目标区域，这为训练监控、样本过滤和 hindsight relabeling 提供依据。
 
-   与 scalarization 相比，goal-conditioning 可以更直接表达用户意图：目标是“落入这个区域”，而不是“按这个权重加权”。
+4. **结合 hindsight experience replay 缓解稀疏奖励问题**  
+   对未达到原目标的轨迹进行目标重标注，使失败样本也能贡献训练信号。
 
-3. **针对凹形和复杂 Pareto front 提供更均匀覆盖**
-
-   实验显示，goal-conditioned GFN 在 concave / multi-concave / disconnected objective landscapes 中比 preference-conditioned GFN 更能覆盖整个 Pareto front。
-
-4. **提出 Pareto-Clusters Entropy / PC-ent 衡量 Pareto front 上的分布均匀性**
-
-   该指标补充了 IGD 的不足，因为 IGD 只关心每个 reference point 是否有最近样本，而不充分反映样本整体分布是否均匀。
-
-5. **提出 Tab-GS 缓解不可行目标区域带来的采样效率下降**
-
-   Tabular Goal-Sampler 通过统计 goal direction 的可行性，降低 infeasible goal 的采样概率，尤其适用于 3、4 目标任务。
-
-6. **结合 hindsight experience replay 处理 goal-conditioned GFN 的稀疏奖励问题**
-
-   对未达到原目标但落入其他目标区域的轨迹进行重新标注，提高样本利用率。
+5. **提出 Tab-GS 应对不可行目标方向**  
+   Tab-GS 根据训练中观察到的可行性统计，降低不可行目标方向的采样概率，在 3、4 目标任务中显著改善训练效率和效果。
 
 ## 局限性
 
-1. **不可行 goal 会降低采样效率**
+1. **硬约束导致样本效率下降**  
+   当采样到不可行 goal region 时，模型只能观察到 0 奖励样本，这会降低训练与采样效率。
 
-   hard constraint 的主要问题是：如果某个 goal region 中不存在可行分子或极难达到，模型只能观察到 0 reward，最终可能接近均匀采样无意义分子。
+2. **Tab-GS 随目标数增长存在扩展性问题**  
+   Tab-GS 需要为每个离散目标方向维护参数。目标数 $K$ 增加时，方向数量可能指数增长，带来统计效率和内存限制。
 
-2. **Tab-GS 的参数规模随目标数指数增长**
+3. **目标区域设计依赖余弦相似度阈值**  
+   focus region 的宽度由 $c_g$ 控制，过宽会降低可控性，过窄会增加到达难度。如何自适应设定目标区域仍需进一步研究。
 
-   作者指出 Tab-GS 为每个 goal direction 维护参数或统计量，随着目标数 $K$ 增加，方向数量会迅速增长，带来统计和内存限制。
+4. **实验主要集中在 fragment-based 分子生成和若干启发式目标上**  
+   是否能稳定推广到更真实的药物发现约束，例如 ADMET、多靶点活性、合成路线可行性等，待补充原文/PDF 或后续工作确认。
 
-3. **高维目标空间中的目标采样仍未彻底解决**
-
-   作者计划未来使用 GFlowNet-based Goal Sampler / GFN-GS 逐维构造 goal direction，以利用参数共享和层级结构提升效率；但这部分在本文中仍是 future work。
-
-4. **实验主要是 fragment-based molecule generation 与有限目标数量**
-
-   本文实验覆盖 2、3、4 目标，但更大规模、更真实药物设计任务中的效果仍需进一步验证。
-
-5. **部分目标来自预测模型或启发式指标**
-
-   例如 sEH binding energy 来自预训练模型，QED、SA、MW penalty 为启发式或代理目标。真实湿实验有效性待补充原文/PDF 后确认。
-
-6. **年份、venue、DOI 元数据缺失**
-
-   用户提供元数据中 year、venue、DOI 为空。PDF 文本显示该工作发表于 ICML 2023 Workshop on Challenges in Deployable Generative AI，arXiv:2306.04620v2，时间为 2023；但 Zotero 元数据未填，正式条目待补充原文/PDF 后确认。
+5. **GFN-GS 只是未来工作设想**  
+   作者提出用 GFlowNet-based Goal Sampler 改善 Tab-GS 扩展性，但本文未报告其完整实验结果。
 
 ## 相关概念
 
+- [[分子生成]]
+- [[分子优化]]
 - [[多目标优化]]
-- [[multi-objective optimization]]
-- [[多目标分子设计]]
-- [[in-silico molecular design]]
-- [[Pareto optimality]]
-- [[Pareto front]]
-- [[Pareto set]]
-- [[scalarization]]
-- [[preference-conditioning]]
-- [[goal-conditioning]]
-- [[goal-conditioned reinforcement learning]]
+- [[Pareto Front]]
+- [[可控生成]]
+- [[目标空间]]
+- [[Goal-conditioned Reinforcement Learning]]
 - [[GFlowNet]]
-- [[Generative Flow Network]]
-- [[Trajectory Balance]]
-- [[fragment-based molecule generation]]
-- [[Graph Transformer]]
-- [[QED]]
-- [[synthetic accessibility]]
-- [[sEH binding energy]]
-- [[molecular weight penalty]]
-- [[replay buffer]]
-- [[hindsight experience replay]]
-- [[reward sparsity]]
-- [[controllable generation]]
-- [[conditional generative model]]
-- [[mode collapse]]
 - [[Inverted Generational Distance]]
-- [[IGD]]
-- [[Pareto-Clusters Entropy]]
-- [[PC-ent]]
-- [[Pearson correlation coefficient]]
-- [[Avg-PCC]]
-
+- [[目标区域]]
 ## 相关方法
 
-- [[Goal-conditioned GFlowNets]]
-- [[preference-conditioned GFN]]
 - [[Multi-objective GFlowNets]]
-- [[Tabular Goal-Sampler]]
-- [[Tab-GS]]
-- [[GFlowNet-based Goal Sampler]]
-- [[GFN-GS]]
+- [[Preference-conditioned GFlowNets]]
+- [[Tabular Goal Sampler]]
 - [[Trajectory Balance]]
-- [[hindsight experience replay]]
-- [[Dirichlet preference sampling]]
-- [[reward shaping]]
-- [[focus region]]
-- [[hard constraint conditioning]]
-- [[soft constraint conditioning]]
-- [[fragment-based drug design]]
-- [[graph-based molecular generation]]
-- [[Graph Transformer Networks]]
+- [[Hindsight Experience Replay]]
+- [[Linear Scalarization]]
+## 相关数据集
 
+- 待补充。
+## 相关模型
+
+- [[Graph Transformer]]
 ## 相关论文
 
-- [[Flow network based generative models for non-iterative diverse candidate generation]]
-  - Bengio et al., 2021a
-  - GFlowNet 基础工作之一。
-
+- [[Multi-objective GFlowNets]]
+- [[Flow Network based Generative Models for Non-Iterative Diverse Candidate Generation]]
 - [[GFlowNet Foundations]]
-  - Bengio et al., 2021b
-  - GFlowNet 理论基础。
-
-- [[Multi-Objective GFlowNets]]
-  - Jain et al., 2022b
-  - 本文主要对比的 preference-conditioned GFN 方法来源。
-
-- [[Biological sequence design with GFlowNets]]
-  - Jain et al., 2022a
-  - GFlowNet 在生物序列设计中的应用。
-
-- [[Trajectory Balance: Improved Credit Assignment in GFlowNets]]
-  - Malkin et al., 2022a
-  - 本文训练 GFlowNet 使用的 Trajectory Balance 目标相关。
-
-- [[Universal Value Function Approximators]]
-  - Schaul et al., 2015
-  - goal-conditioned reinforcement learning 的相关基础。
-
+- [[Trajectory Balance]]
 - [[Hindsight Experience Replay]]
-  - Andrychowicz et al., 2017
-  - 本文用于重标注未达到目标轨迹的方法来源。
-
 - [[Pareto Multi-Task Learning]]
-  - Lin et al., 2019
-  - 本文 focus region 设计灵感来源之一。
-
-- [[Multi-objective molecule generation using interpretable substructures]]
-  - Jin et al., 2020
-  - 多目标分子生成相关工作。
-
-- [[Optimization of molecules via deep reinforcement learning]]
-  - Zhou et al., 2019
-  - 分子优化与强化学习相关工作。
-
-- [[Deep reinforcement learning for multiparameter optimization in de novo drug design]]
-  - Ståhl et al., 2019
-  - de novo drug design 中多参数优化相关工作。
-
-- [[MoleculeNet]]
-  - Wu et al., 2018
-  - 分子机器学习数据集/基准相关。
-
-- [[Guacamol]]
-  - Brown et al., 2019
-  - de novo molecular design benchmark。
 
 ## 源文件
 
-- citekey: `royGoalconditionedGFlowNetsControllable`
-- title: `Goal-conditioned GFlowNets for Controllable Multi-Objective Molecular Design`
-- authors: Julien Roy, Pierre-Luc Bacon, Christopher Pal, Emmanuel Bengio
-- year: 待补充原文/PDF 后确认；PDF 文本显示 arXiv:2306.04620v2，2023
-- venue: 待补充原文/PDF 后确认；PDF 文本显示为 ICML 2023 Workshop on Challenges in Deployable Generative AI
-- DOI: 待补充原文/PDF 后确认
-- collections: 多目标分子优化
+- Zotero citekey：`royGoalconditionedGFlowNetsControllable`
+- 论文标题：**Goal-conditioned GFlowNets for Controllable Multi-Objective Molecular Design**
+- 作者：Julien Roy, Pierre-Luc Bacon, Christopher Pal, Emmanuel Bengio
+- 年份：当前元数据缺失；正文显示为 ICML Workshop on Challenges in Deployable Generative AI, 2023。
+- venue：元数据缺失；正文显示为 Workshop on Challenges in Deployable Generative AI at International Conference on Machine Learning (ICML), Honolulu, Hawaii, USA, 2023。
+- DOI：元数据缺失。
+- collections：多目标分子优化
+- 正文来源：MinerU full.md
 
-## 图表摘录
+## 代码与数据
 
-![[raw/zotero/images/多目标分子优化/目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable/page-001.png]]
+### 代码
+
+未在当前解析文本中发现明确代码仓库。
+
+### 数据集 / Benchmark
+
+- https://books.google.ca/books?id=GPE6ZAqGrnoC
+
+### 其他链接
+
+未在当前解析文本中发现其他外部资源链接。
 
 ## Zotero 原始摘要
 
@@ -624,46 +367,17 @@ In recent years, in-silico molecular design has received much attention from the
 
 ## 我的理解
 
-这篇论文的关键不是提出一个更高 IGD 的分子优化器，而是指出 多目标生成模型 的评价不能只看“是否靠近 Pareto front”，还要看：
+这篇论文的关键不是提出一个新的分子属性预测器，而是改变多目标生成模型的“条件控制接口”。preference-conditioning 的接口是“我更重视哪个目标”，而 goal-conditioning 的接口是“我希望生成结果落在目标空间的哪个方向/区域”。前者依赖线性标量化，容易受到 Pareto front 几何形状影响；后者直接把目标区域变成 hard constraint，因此更适合需要覆盖不同折中解的场景。
 
-1. 是否能根据用户意图控制生成位置；
-2. 是否能均匀覆盖不同 trade-off；
-3. 是否能避免只生成极端点附近的候选。
+从实用角度看，goal-conditioned GFN 对药物发现很有吸引力：药物设计者往往不是只想最大化一个综合分数，而是希望探索一批满足不同折中策略的候选分子。例如有些候选可以牺牲一点 QED 换取更高结合能，有些候选则希望保持更好可合成性。goal-conditioned 形式更接近这种交互式、多策略探索需求。
 
-传统 preference-conditioning 本质上仍是 scalarization。它告诉模型“我比较重视哪个目标”，但没有直接规定“生成结果必须落在哪个目标空间区域”。当 Pareto front 是凹的或不连续时，加权和优化天然容易偏向某些区域。
-
-goal-conditioning 的优势在于，它把用户意图变成一个目标空间中的区域约束。这样模型需要学习“给定这个区域，我该生成哪些分子”。这使模型更像一个可交互的 Pareto front 探索工具，而不是单纯的多目标优化器。
-
-不过 hard constraint 也带来稀疏奖励和 infeasible goal 问题。本文用 replay buffer、hindsight experience replay 和 Tab-GS 做了实用修补。长远看，更优雅的方向可能是学习一个连续或层级的 goal sampler，让模型自动发现哪些目标区域值得探索。
-
-从知识库角度看，这篇文章适合连接到以下主题：
-
-- 多模态多目标优化
-- 可控生成模型
-- GFlowNet
-- 药物分子生成
-- Pareto front approximation
-- goal-conditioned reinforcement learning
-- 多目标强化学习
+不过，这种方法的代价是奖励更稀疏。只要目标区域不可行或很难达到，训练信号就会变差。因此 Tab-GS 是本文非常关键的工程补丁。它说明 hard constraint 虽然带来更强可控性，但必须配合合理的 goal distribution 学习，否则会浪费大量采样预算。
 
 ## 后续问题
 
-1. 本文的 goal region 是基于 cosine similarity 的锥形区域。对于目标尺度不同、非归一化或存在负值的目标，这种定义是否仍然合适？
-
-2. 如果目标之间存在强约束或非平滑边界，focus region 是否需要更复杂的形状，而不是简单锥形区域？
-
-3. Tab-GS 在目标数量较大时会指数膨胀。作者提出的 GFN-GS 是否在后续论文中实现并验证？
-
-4. goal-conditioned GFN 与 conditional diffusion model 或 reinforcement learning for molecular design 相比，在真实药物发现 pipeline 中的优势是什么？
-
-5. PC-ent 依赖 reference points。真实任务中 Pareto front 未知时，reference points 的构造会不会显著影响评价？
-
-6. 本文主要使用 QED、SA、MW penalty 和 sEH 预测分数。若换成 docking score、ADMET 预测、不确定性约束等更真实目标，goal-conditioned 方法是否仍然稳定？
-
-7. hard constraint 会过滤掉 out-of-focus samples。实际部署时，是否应将 out-of-focus 率也作为模型效率指标？
-
-8. 是否可以将用户交互反馈纳入 goal distribution，让模型逐步学习用户真正关心的 Pareto front 区域？
-
-9. 与 Pareto Multi-Task Learning 中的 preference/gradient 方法相比，本文的 focus region 机制是否可以迁移到多任务学习？
-
-10. 是否存在理论保证：goal-conditioned GFN 在 goal distribution 覆盖充分时能比 scalarization 更完整地覆盖非凸 Pareto front？
+1. focus region 的形状是否必须是基于余弦相似度的锥形区域？能否使用 box constraint、球形区域或由专家规则定义的非凸区域？
+2. Tab-GS 在目标数更高时会遇到指数扩展问题，GFN-GS 是否真的能解决这一问题？是否有后续论文验证？
+3. goal-conditioned GFN 在真实药物发现中的多目标约束，例如 ADMET、选择性、合成路线成本等，是否仍能保持可控性？
+4. 对不可行 goal region 的识别是否可以与 uncertainty estimation 结合，主动避免无效目标区域？
+5. 本文评估中过滤 out-of-focus samples 后再计算指标，这对实际采样效率的影响有多大？是否需要同时报告未过滤前的有效样本比例？
+6. 与基于 hypervolume improvement 或 Pareto front active learning 的方法相比，goal-conditioned GFN 的样本效率和分子多样性如何？

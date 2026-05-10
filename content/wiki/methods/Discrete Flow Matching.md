@@ -9,34 +9,37 @@ background: "included"
 
 ## 标准定义
 
-标准定义：Discrete [[Flow Matching]]（[[Flow Matching|DFM]]）是一类用于离散状态空间生成建模的方法，通常借助[[连续时间马尔可夫链]]或其他跳跃过程来描述从简单分布到数据分布的演化，并学习时间相关的 token 转移速率/velocity field。它与连续空间的[[Flow Matching]]思路相近，但直接在[[离散状态空间]]上工作。
+Discrete Flow Matching（[[Discrete Flow Matching|DFM]]）是一类面向离散状态空间的生成建模方法，通常通过学习[[连续时间马尔可夫链]]中的 token 转移率或“流”来刻画从噪声/初始分布到数据分布的演化。它与连续空间的 flow matching 不同，核心优势是可直接在离散序列上建模与采样，而不必先将序列强行嵌入连续表示。常见表述会把它理解为在离散空间中学习一个可采样的 [[连续时间马尔可夫链]]，并用 token-level 的转移规则逐步生成样本。
 
 ## 在本知识库中的用法
 
-本知识库中，DFM 主要被用作离散[[生物序列设计]]的预训练生成底座：先学到氨基酸或 DNA token 的逐位置转移速率，再在采样阶段加入多目标引导，使生成结果朝不同偏好方向上的[[Pareto front]]区域移动。相关论文重点展示了它在肽段与 enhancer DNA 的[[controllable generation|可控生成]]中，如何通过重加权转移和逐步采样实现多目标权衡。
+在这篇论文相关知识库中，Discrete Flow Matching 是 MOG-DFM 的底层预训练生成器，用于肽结合物和 enhancer DNA 的[[可控生成]]。采样时不是重新训练生成器，而是在 DFM 的离散采样轨迹上加入多目标引导：随机选取位置、枚举候选 token 替换、根据多目标 score 对转移进行重加权，并结合[[Adaptive Hypercone Filtering|自适应超锥过滤]]来限制与目标 trade-off 方向不一致的更新。论文强调它适合直接处理离散生物序列，避免把序列先映射到连续空间再优化。
 
 ## 关键点
 
-- 核心对象是离散 token 序列，适合蛋白、DNA、[[SMILES]] 等生成任务。
-- 通过学习时间相关的转移速率来定义生成轨迹，而不是先映射到连续 latent 再优化。
-- 在本库里，它是多目标引导方法的底座；引导策略会对原始速度场进行重加权。
-- 论文场景中可用于肽段 binder 与 enhancer DNA 设计，目标是平衡[[binding affinity|亲和力]]、[[hemolysis|溶血性]]、[[solubility|溶解性]]等冲突性质。
-- 与一般[[多目标优化]]不同，这里优化过程嵌入到逐步采样中，偏向生成而非仅做黑盒搜索。
+- DFM 直接建模离散序列的生成过程，适合 [[离散状态空间]] 下的样本采样，而不是依赖连续嵌入后再生成。
+- 其核心对象通常是连续时间马尔可夫链中的 token 转移率或 velocity / flow，因此采样过程可以逐步控制每个位置的替换。
+- 在本论文中，DFM 被用作 peptide binder 和 enhancer DNA 的基础生成器，后续通过多目标 guidance 改造采样过程。
+- MOG-DFM 的做法是不改训练好的生成器，而是在采样阶段对候选 token 转移进行基于多目标评分的重加权。
+- 论文中的 DFM 采样与 [[Pareto front]] 相关：不同权重向量对应不同的多目标折中方向。
+- 由于保持在离散空间中，DFM 比需要连续输入的某些多目标方法更适合[[生物序列设计]]任务。
 
 ## 别名
 
+- 离散流
+- 离散流匹配模型
 - DFM
 - Discrete Flow Matching
 - 离散流匹配
-- 离散流模型
 
 ## 外部背景
 
-- [[离散生成模型|离散流匹配]]可视为把 flow matching 从连续向量场推广到 categorical 序列的生成框架。
-- 常见实现会把每一步更新写成单个位置的 token [[mutation]]，并用数值积分或离散采样推进轨迹。
-- 它常被视为离散扩散模型、自回归模型之外的另一类序列生成路线；与 rectified / guided 变体的经典谱系待核对经典来源。
+- 待核对经典来源：Discrete Flow Matching 可视为 [[Flow Matching]] 思想在离散空间中的推广。
+- 待核对经典来源：其采样常与连续时间马尔可夫链、随机过程生成和 token replacement 机制相关。
+- 待核对经典来源：与 masked diffusion language model 相比，DFM 更强调显式的 token-level 转移率建模。
+- 待核对经典来源：在离散序列生成中，DFM 常被用于蛋白质、DNA、RNA 或一般符号序列建模。
 
 ## 相关论文
 
-- [[面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow]]
 - [[2025 - AReUReDi多目标引导离散流退火校正更新 - chenAReUReDiAnnealedRectified2025]]
+- [[面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow]]

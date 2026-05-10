@@ -2,29 +2,44 @@
 type: "method"
 status: "enriched"
 category: "优化方法"
-domain: "多目标蛋白质序列优化"
+domain: "多目标优化"
+background: "included"
 ---
-# linear scalarization
+# Linear Scalarization
 
-## 定义
+## 标准定义
 
-[[线性标量化]]是一种[[多目标优化]]的基础方法，把多个[[黑盒 oracle|目标函数]]按权重线性加和，转化为单目标优化问题。给定[[Preference Vector|偏好向量]]后，方法通过优化加权和来寻找候选解。上下文中指出，它更适用于凸 [[Pareto front]]；对于[[非凸 Pareto front]]，可能无法覆盖全部 [[Pareto 最优]]区域。
+Linear [[Scalarization]]（线性标量化）是 [[多目标优化]] 中最常见的标量化策略之一：把多个目标函数按权重加权求和，构造成一个单目标代理目标，再用任意单目标优化器求解。形式上通常写作 $f_\lambda(x)=\sum_i \lambda_i f_i(x)$，其中 $\lambda_i$ 表示各目标的重要性。它的优点是简单、易实现、便于与梯度法结合；局限是对非凸 [[Pareto front]] 的覆盖不充分，且结果对权重设定与目标尺度较敏感。
+
+## 在本知识库中的用法
+
+在本知识库对应论文中，线性标量化作为传统 [[compositional energy-based model]] 的朴素组合方式出现：把多个属性的 energy 直接相加，再沿总梯度进行 Langevin 采样。作者将其与 [[Multiple Gradient Descent]] 对比，指出这种固定加权的做法更像单点折中，容易偏向某些目标，在非凸 [[Pareto Front|Pareto front]] 上覆盖不足，因此需要 [[Compositional Energy-Based Model|pcEBM]] 这类更自适应的多目标采样方式来替代或增强它。
 
 ## 关键点
 
-- 将多目标问题写成加权和形式：f_λ(x) = Σ_i λ_i f_i(x)。
-- [[Preference Vector|权重向量]] λ 位于概率单纯形上，即各权重非负且和为 1。
-- 作为多目标优化的简单 baseline，可用于生成或优化中引入偏好。
-- 论文明确指出，线性[[标量化]]更适合凸 Pareto front。
-- 在非凸 Pareto front 情况下，它可能遗漏部分 Pareto 最优解。
+- 本质上是把多个目标压缩成一个标量目标，便于直接套用单目标优化器；与 [[Pareto front]] 的关系是“用一个权重点去近似一类权衡解”。
+- 在论文语境中，线性标量化对应 c[[Energy-Based Model|EBM]] 的简单能量求和采样，是 pcEBM/MGD 的对照基线。
+- 它通常只在 Pareto front 近似凸时更有效；面对非凸前沿时，可能遗漏某些关键折中解。
+- 权重选择会强烈影响优化结果；不同目标量纲不一致时，往往还需要归一化或手工调参。
+- 相比之下，[[Multiple Gradient Descent]] 不预设固定权重，而是根据当前梯度自适应寻找共同改进方向。
 
 ## 别名
 
 - weighted sum
 - weighted-sum scalarization
-- 加权和法
-- 加权标量化
+- linear weighting
+- 加权求和
+- 线性加权法
+
+## 外部背景
+
+- 经典做法通常把线性标量化视为多目标问题最基础的 scalarization 方法之一，可作为生成一组不同权重解的简单手段。
+- 常见变体包括固定权重、随机权重、归一化后加权，以及随迭代变化的动态权重；待核对经典来源。
+- 在线性加权框架下，若各目标尺度差异较大，优化结果可能被数值范围更大的目标主导，因此常需先做尺度处理。
+- 对于非凸 [[Pareto Front|Pareto 前沿]]，线性标量化往往无法完整恢复全部前沿点，这是其最重要的局限之一。
 
 ## 相关论文
 
+- [[面向隐式化学空间的多目标进化分子优化方法 - xiaMoleculeOptimizationMultiobjective]]
+- [[目标条件GFlowNets可控多目标分子设计 - royGoalconditionedGFlowNetsControllable]]
 - [[用于蛋白质序列采样与优化的帕累托最优组合能量模型 - tagasovskaParetooptimalCompositionalEnergybased]]

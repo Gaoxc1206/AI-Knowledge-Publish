@@ -2,41 +2,41 @@
 type: "concept"
 status: "enriched"
 category: "理论概念"
-domain: "多目标分子设计"
+domain: "大语言模型与分子多目标优化"
 background: "included"
 ---
-# in-context learning
+# In-context Learning
 
 ## 标准定义
 
-In-context learning（上下文学习，ICL）是指模型在不更新参数的情况下，仅通过输入提示词中的任务说明、示例或上下文信息，在推理阶段临时归纳任务模式并完成生成或预测的能力。它常见于 [[Large Language Model]]，也常与 [[prompt engineering]] 配合使用。背景知识上，ICL 不等同于参数微调，而是依赖上下文中提供的示范、约束和结构化信息来触发模型的条件化推理。
+In-context Learning（ICL）指模型在不更新参数的前提下，仅通过输入中的任务说明、示例和上下文信息，临时适应当前任务的能力。它通常依赖 [[Prompt Engineering]] 来组织提示，并常见于 [[Large Language Model]] 的 few-shot 或零样本设置中：模型从上下文中推断输出模式、约束和目标，而不是通过梯度训练获得新知识。
 
 ## 在本知识库中的用法
 
-在本论文的[[Multi-objective evolutionary molecule optimization|多目标分子优化框架]]中，in-context learning 主要体现为把父代分子的 [[SMILES]]、各目标性质值以及聚合后的 F-value 放入 prompt，让 [[Large Language Model|LLM]] 在生成 [[crossover]]/[[mutation]] 结果时依据这些上下文信息理解当前优化状态与目标权衡。作者将其作为无需额外训练地利用化学先验和优化历史的关键机制之一，并与 [[prompt engineering]]、[[Pareto front]] selection、[[F-value selection]] 共同构成优化流程。这里的用法不是训练一个新的[[分子生成]]器，而是让 [[Large Language Model]] 通过上下文直接执行分子搜索操作。
+在本知识库所对应论文中，ICL 主要体现为：把父代分子的 [[SMILES]]、各目标的数值、目标描述、输出格式要求，必要时再加历史经验，放入 prompt 中，让 LLM 根据这些上下文直接生成子代分子。它不是独立训练的模块，而是 [[MOLLM]] 用来把专家知识、当前种群状态和优化目标临时注入生成过程的方式，服务于分子[[多目标优化]]与遗传操作中的 crossover / mutation。
 
 ## 关键点
 
-- 标准意义上，ICL 是一种推理时学习方式：模型根据上下文中的示例和约束完成任务，而不是通过梯度更新参数。
-- 在该论文中，ICL 主要用于把父代分子的性质信息写入 prompt，使 LLM 能感知当前分子的多目标状态与优化方向。
-- ICL 与 [[prompt engineering]] 紧密结合：上下文组织方式会直接影响 LLM 作为 crossover / mutation 算子时的输出质量。
-- 论文中的 ICL 不是单纯的 few-shot 分类，而是面向分子生成与多目标权衡的条件化生成。
-- 结合 [[Pareto front]] selection 和 F-value selection 后，ICL 提供的上下文信息更容易转化为有效的候选分子搜索。
-- 该工作强调 ICL 可帮助复用预训练模型中的化学知识，从而减少额外训练和 [[黑盒 oracle|oracle]] 调用成本。
+- ICL 的核心是“通过上下文临时学习”，不需要对模型参数做额外训练或微调。
+- 在 MOLLM 中，ICL 主要用于把父代分子及其目标分数写入 prompt，使 LLM 依据当前优化状态生成更合适的子代。
+- 该论文中的 ICL 与 [[遗传算法|Genetic Algorithm]] 结合，充当 crossover 和 mutation 的生成依据，而不是单独的生成模型。
+- 上下文不仅包含分子结构，还包含多目标要求、目标值、输出约束和可选经验，体现了面向任务的提示编排。
+- 这种用法的目标是让 LLM 在分子多目标优化中直接调用已有化学知识，减少额外训练与外部操作器依赖。
 
 ## 别名
 
 - ICL
+- in-context learning
 - 上下文学习
 - 上下文内学习
-- in-context learning
+- few-shot prompting
 
 ## 外部背景
 
-- ICL 常被视为大模型在上下文中进行临时任务适配的一种能力，常见于指令跟随、few-shot 生成和结构化推理任务。
-- 在经典理解中，ICL 依赖于示例顺序、示例质量和提示格式；这些因素会显著影响模型表现，待核对经典来源。
-- 与微调不同，ICL 不改变模型参数，因此更适合低成本、快速迭代的应用场景。
-- 在生成式任务中，ICL 不仅可以提供标签或答案示例，也可以提供中间状态、约束条件和打分信息，待核对经典来源。
+- ICL 是 [[Large Language Model]] 的典型能力之一，常见于 zero-shot / few-shot prompting 场景，待核对经典来源。
+- ICL 与 few-shot learning 相近，但通常强调“在推理时依赖上下文”而非参数更新，待核对经典来源。
+- 在生成任务中，ICL 常通过示例对齐格式、风格和约束，帮助模型输出更符合任务要求的结果。
+- 在化学与分子设计任务里，ICL 可把结构、性质、约束和操作示例一起放入提示中，作为条件生成的外部控制信号。
 
 ## 相关论文
 

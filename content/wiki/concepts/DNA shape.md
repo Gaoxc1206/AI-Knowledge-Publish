@@ -2,41 +2,39 @@
 type: "concept"
 status: "enriched"
 category: "理论概念"
-domain: "可控生物序列设计"
+domain: "DNA序列设计"
 background: "included"
 ---
-# DNA shape
+# DNA Shape
 
 ## 标准定义
 
-DNA shape 指由 DNA 序列决定的局部三维构象与几何特征集合，可作为序列功能的结构性表征。常见 DNA shape 特征包括 [[helix twist]]、[[roll]]、[[rise]]、[[shift]]、[[slide]]、[[propeller twist]] 和 [[minor groove width]] 等；它们反映碱基对堆叠、双螺旋局部弯曲与沟槽几何的变化。与只看碱基字母不同，DNA shape 更强调序列在结构层面的可解释性背景。
+DNA shape 指由 DNA 序列决定的局部三维构象与几何特征集合，常用于刻画双螺旋在不同位置的结构差异。它不同于仅看碱基字母本身的序列表示，更强调序列对物理形态的影响。常见的 DNA shape 特征包括 minor groove width、helix twist、roll、propeller twist，以及更细粒度的局部几何量；这些特征可作为转录调控、蛋白-DNA 识别和序列功能建模的结构性描述。
 
 ## 在本知识库中的用法
 
-在该论文的 enhancer DNA 设计任务中，DNA shape 被当作需要联合控制的性质之一，与 enhancer class 一起作为多目标引导的优化对象。上下文中明确举例的 shape 特征包括 [[HelT]] 和 [[Rise]]；方法通过预训练的标量评分函数对这些性质进行打分，并在[[Discrete Flow Matching|离散流匹配]]采样过程中朝更符合目标权衡的方向引导序列生成。
+在这篇论文里，DNA shape 被当作 enhancer DNA 设计中的一个可控目标，与 enhancer class 并列用于多目标引导采样。作者在两个任务中分别以目标 enhancer class 1 / 16 搭配较高的 [[HelT]] 或 [[Rise]] 作为引导目标；结果表明，同时开启 class 与 shape guidance 时，生成序列能同时提升类别概率和 shape 指标，而去掉其中一种 guidance 会使对应指标明显下降。
 
 ## 关键点
 
-- DNA shape 是序列衍生的结构特征，不等同于 DNA 字母本身；它提供了比纯序列更接近机制层面的描述。
-- 经典 DNA shape 描述通常覆盖局部几何量，如 [[helix twist]]、[[rise]]、[[roll]]、[[propeller twist]] 和 [[minor groove width]]。
-- 在本知识库对应论文中，DNA shape 是 enhancer DNA 设计的多目标之一，用于和 enhancer class 共同进行[[controllable generation|可控生成]]。
-- 论文上下文里具体提到的 shape 例子是 HelT 和 Rise，说明这里关注的是可由序列驱动的局部构象控制。
-- DNA shape 适合与多目标引导结合，因为它可以作为独立评分维度参与 Pareto 式权衡。
-- 若需要更完整的分类、计算方式或与实验测量/预测模型的对应关系，待从更多论文中补充。
+- DNA shape 是序列诱导的局部结构特征，不是单纯的分类标签或全局分数；它更适合与 [[enhancer]] 等功能目标一起作为设计约束。
+- 在本知识库对应论文中，DNA shape 作为 enhancer DNA 设计的多目标之一，和 enhancer class 共同构成[[可控生成]]条件。
+- 论文具体使用的 shape 相关目标包括 [[HelT]] 和 [[Rise]]，分别对应不同任务中的结构偏好。
+- 实验结果支持：class 与 shape 双重引导优于只保留其中一个目标，说明 DNA shape 在可控序列设计中具有独立信息。
+- DNA shape 在这里不是生成模型结构本身，而是用于对离散序列采样进行外部评分和引导的属性。
 
 ## 别名
 
-- DNA构象形状
+- DNA结构形状
 - DNA shape features
-- 序列衍生DNA结构特征
-- HelT/Rise 等DNA几何特征
+- DNA structural features
 
 ## 外部背景
 
-- DNA shape 研究通常从高分辨率结构统计或基于序列的预测模型出发，用于刻画短序列片段的局部构象偏好。
-- 常见 DNA shape 参数里，HelT 通常指 helix twist，Rise 表示相邻碱基对之间沿螺旋轴方向的位移。
-- DNA shape 经常被用于解释转录因子结合偏好、启动子/增强子活性差异以及蛋白-DNA 相互作用特异性。
-- 待核对经典来源
+- DNA shape 通常由 sequence-dependent structural models 近似预测，可从序列推断局部构象参数，待核对经典来源。
+- DNA shape 常被用于解释转录因子结合特异性，因为某些蛋白不仅识别碱基序列，也识别 DNA 的局部几何形态，待核对经典来源。
+- 常见 DNA shape 表征除了 HelT、Rise 外，还包括 MGW、ProT、Roll、Shift、Slide、Tilt、Buckle 和 Opening，待核对经典来源。
+- DNA shape 特征通常可在滑动窗口上按位置计算，因此适合做位置相关的序列分析与设计约束，待核对经典来源。
 
 ## 相关论文
 

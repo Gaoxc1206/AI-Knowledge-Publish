@@ -1,26 +1,36 @@
 ---
 type: "method"
 status: "enriched"
-category: "优化方法"
+category: "其他"
 domain: "多模态多目标优化"
+background: "included"
 ---
 # FPITSEA
 
-## 定义
+## 标准定义
 
-在给定论文笔记中，没有找到 FPITSEA 的明确展开、定义或独立方法描述。相关内容主要介绍的是用于[[多模态多目标优化]]的双档案方法 [[CMMO|ACEA-NFCD]]，以及其中的自适应收敛指标和[[拥挤距离|邻域模糊拥挤距离]]机制。FPITSEA 若与这些机制相关，仍需从更多论文中补充确认。
+待从更多论文中补充
+
+## 在本知识库中的用法
+
+待从更多论文中补充。当前提供的论文上下文未出现 FPITSEA 的明确定义或用法。
 
 ## 关键点
 
-- 给定上下文中未见 FPITSEA 的明确定义，证据不足。
-- 相关论文的核心方法是 ACEA-[[拥挤距离|NFCD]]，而非 FPITSEA。
-- 论文聚焦于多模态[[多目标优化]]中同时寻找 global PS 与 local PS。
-- 方法通过自适应收敛指标区分局部/全局收敛判断。
-- 方法通过邻域模糊[[拥挤距离]]融合[[决策空间]]与[[目标空间]]多样性维护。
+- 当前提供的论文上下文未出现 FPITSEA 的明确定义，无法可靠判断其全称、输入输出和适用场景。
+- 从上下文看，相关研究主题是 [[Multimodal Multi-Objective Optimization]]，重点在同时找全 global PS 和 local PS。
+- 论文方法围绕 [[Adaptive Convergence Indicator]]、[[Neighborhood Fuzzy Crowding Distance]] 和双档案协同更新展开；若 FPITSEA 与此相关，需要原文进一步核对。
+- 在本知识库中，FPITSEA 目前应作为待补充术语记录，避免与 ACEA-NFCD 的具体机制混淆。
 
 ## 别名
 
 - 无
+
+## 外部背景
+
+- [[多模态多目标优化]]（[[多模态多目标优化|MMOP]]s）通常要求同时逼近 [[Pareto Front|Pareto front]]，并尽可能保留多个 [[Pareto最优解集|Pareto optimal solution set]]。
+- [[拥挤距离]]是进化[[多目标优化]]中常见的多样性维护手段，常与[[非支配排序]]结合使用。
+- 待核对经典来源
 
 ## 相关论文
 

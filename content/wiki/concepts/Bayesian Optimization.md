@@ -2,39 +2,40 @@
 type: "concept"
 status: "enriched"
 category: "优化方法"
-domain: "多目标贝叶斯优化"
+domain: "贝叶斯优化 / 多目标分子优化"
 background: "included"
 ---
-# Bayesian Optimization
+# Bayesian optimization
 
 ## 标准定义
 
-[[Bayesian Optimization]]（[[Bayesian optimization|贝叶斯优化]]）是一类用于优化昂贵、黑盒、不可微[[黑盒 oracle|目标函数]]的序贯决策方法。其典型流程是先用概率代理模型（常见如 [[Gaussian Process]]）近似目标函数，再通过[[Acquisition Function]]在“探索/利用”之间权衡，迭代选择下一批最值得评估的样本。它特别适合评估代价高、样本预算有限的场景，如实验设计、材料发现和[[分子优化]]；在多目标情形下，BO 通常会结合 [[Pareto Front]]、[[Hypervolume Indicator|超体积]]等概念扩展到多目标采集策略。
+Bayesian optimization（贝叶斯优化）是一类用于黑箱函数优化的序贯决策方法：先用[[Gaussian Process]]等代理模型对目标函数进行概率建模，再通过[[acquisition function]]在“探索”和“利用”之间权衡，选择下一批最值得评估的候选点。它通常适用于评估代价高、目标函数不可微、样本预算有限的场景；在多目标情形下，还可以直接面向[[Pareto front]]进行优化，而不必先把多个目标压缩成单一标量。
 
 ## 在本知识库中的用法
 
-在本知识库对应论文中，Bayesian Optimization 指的是一个受控的[[多目标分子优化]]流程：在相同分子表示、相同 GP 代理模型、相同候选池和相同评估预算下，仅比较不同[[acquisition function|采集函数]]策略。具体实验采用 10,000 个候选分子、200 轮 BO、3 个随机种子，并对比 [[Expected Hypervolume Improvement]]（[[Expected Hypervolume Improvement|EHVI]]）与[[固定权重标量化]]后的 [[Expected Improvement]]（EI）。该设置用于隔离采集策略本身对 [[Pareto front]] 覆盖、收敛速度与[[molecular diversity|分子多样性]]的影响。
+在本知识库所对应的论文中，Bayesian optimization 指用于分子设计的序贯[[多目标优化]]流程：从 [[GUACAMOL]] 固定候选池中逐轮选择分子，使用相同的 GP 代理模型与分子表示，只比较不同 acquisition strategy 的效果。具体实验中每轮从 10,000 个候选分子中选 1 个，连续优化 200 轮，并在 3 个随机种子上重复。该用法主要服务于比较 Pareto-aware 的 EHVI 与固定权重标量化 EI 在超体积、R^2 指标和结构多样性上的差异。
 
 ## 关键点
 
-- BO 的核心是用概率代理模型近似黑盒目标，并通过采集函数决定下一次评估点，兼顾探索与利用。
-- 标准 BO 多用于单目标优化；在多目标场景中，常通过 [[Pareto Front]]、[[Expected Hypervolume Improvement]] 等方式扩展。
-- 本库中的 BO 主要出现在分子设计任务里，目标是比较 EHVI 与固定标量化 EI 在同一预算下的表现，而不是提出新的 BO 框架。
-- 该论文中的 BO 使用独立的 GP 为每个性质建模，并在固定候选池上逐轮选择分子，强调受控比较。
-- 结果表明，在这些分子 MPO 任务里，Pareto-aware 的 BO 往往比固定权重标量化更能提升覆盖、收敛和多样性。
+- 标准上，Bayesian optimization 用代理模型近似真实目标，并通过 acquisition function 决定下一次评估哪里最有价值。
+- 在多目标[[分子优化]]中，它常被用来直接搜索非支配解，而不是先把多个性质压成一个固定分数。
+- 本知识库中的实验把 BO 作为统一框架，控制了 surrogate、kernel、分子表征和候选池，以隔离 acquisition function 的影响。
+- 论文比较的核心不是 BO 是否有效，而是在相同 BO 预算下，[[Expected Hypervolume Improvement]] 是否优于固定权重的 [[Expected Improvement]] 标量化版本。
+- 该设置强调样本效率：在有限轮次内更快扩展[[Pareto front]]，同时尽量保持化学结构多样性。
 
 ## 别名
 
 - BO
-- Bayes Optimization
 - 贝叶斯优化
+- 序贯模型优化
 
 ## 外部背景
 
-- 经典 BO 通常以 [[Gaussian Process]] 为代理模型，并配合 EI、UCB、PI 等采集函数；待核对经典来源。
-- 多目标 BO 的常见扩展包括 EHVI、ParEGO、qEHVI 等；待核对经典来源。
-- 在离散空间或候选池有限的任务中，BO 常被改造成“从固定候选集合中选点”的版本，以适配分子设计；待核对经典来源。
-- BO 的理论与实践通常强调样本效率，适合评估昂贵的实验或模拟目标；待核对经典来源。
+- Bayesian optimization 常见组成包括 surrogate model、acquisition function 和 sequential update 机制。
+- 经典 BO 多用于昂贵评估场景，如材料设计、超参数搜索和分子发现；待核对经典来源。
+- 多目标 Bayesian optimization 也称 MOBO，常见 acquisition 变体包括 EHVI、[[ParEGO]]、qEHVI 等；待核对经典来源。
+- 固定权重标量化是 BO 中常见但较基础的多目标处理方式，优点是实现简单，缺点是对权重敏感且覆盖范围有限。
+- 在离散候选池上进行 BO 时，常会先预生成候选集合，再用 acquisition 在候选池中筛选下一点。
 
 ## 相关论文
 

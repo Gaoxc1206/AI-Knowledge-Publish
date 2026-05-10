@@ -20,764 +20,453 @@ original_title: "Distributional Multi-objective Black-box Optimization for Diffu
 ---
 ## 一句话总结
 
-**Distributional Multi-objective Black-box Optimization for Diffusion-model Inference-time Multi-Target Generation** 提出 **Inference-time Multi-target Generation (IMG)**：在扩散模型反向生成过程中通过基于多目标期望值的加权重采样，把预训练扩散模型的生成分布推向多目标 Boltzmann 目标分布，从而在单次推理中生成覆盖Pareto front的多目标候选样本，并在多目标分子生成任务上显著提升Hypervolume与样本效率。
+这篇论文提出 **Inference-time Multi-target Generation (IMG)**：在扩散模型推理过程中用基于多目标值的加权重采样直接调整反向扩散转移分布，使预训练扩散模型无需微调、仅一次生成过程即可产生覆盖 Pareto front 的多目标候选分子，并在多目标 3D 分子生成任务上取得高于多个 EA-based baseline 的 hypervolume。
 
 ## 研究问题
 
-本文研究的是多目标黑盒优化与扩散模型推理时优化的结合问题：
+论文研究的问题是：如何利用预训练扩散模型解决高维 **multi-objective black-box optimization**，尤其是多目标分子生成任务，同时避免以下两类已有方法的缺陷：
 
-- 给定多个可能相互冲突的黑盒目标函数：
-  - $f_1(\cdot), \dots, f_n(\cdot)$
-- 目标不是找到单个最优解，而是生成一组非支配解，近似Pareto front。
-- 目标函数为黑盒：
-  - 只能评估；
-  - 不可微；
-  - 无显式数学表达式；
-  - 不适合直接使用梯度优化。
-- 应用场景包括：
-  - 药物设计
-  - 分子生成
-  - 工程设计
-  - 材料科学
-  - 经济学优化
+1. **训练或微调扩散模型的方法**  
+   这类方法通常需要先给数据标注多目标值，再训练 conditional diffusion 或 fine-tune diffusion model，成本高、数据需求大。
 
-本文特别关注一个问题：
+2. **把扩散模型作为外部优化循环中的 frozen refiner 的方法**  
+   例如 **DiffSBDD-EA** 或 **EGD** 使用扩散模型作为 evolutionary algorithm 中的候选生成/精炼模块，但没有利用扩散生成过程内部的分布转移机制，容易受限于预训练模型原始分布，效率较低。
 
-> 如何在不重新训练扩散模型、不训练可微 surrogate model 的情况下，在扩散模型推理阶段直接引导生成结果满足多个黑盒目标？
+本文希望回答的问题是：能否在扩散模型的 inference-time 直接引导反向扩散过程，使生成样本分布向多目标最优分布偏移，并且保持黑箱目标设定，不依赖目标函数可微或 surrogate model？
 
 ## 背景与动机
 
-### 多目标黑盒优化的困难
+多目标优化的目标不是找到单个最优点，而是找到一组非支配解，即 **Pareto front**。在药物设计中，候选分子往往需要同时满足结合亲和力、可合成性、类药性等目标，这些目标之间可能冲突，因此天然适合多目标优化建模。
 
-多目标优化的核心困难在于目标之间往往冲突。例如在药物设计中，可能同时希望：
+黑箱优化设定下，目标函数只能被评估，无法获得解析形式或梯度。这使得传统 gradient-based 方法难以直接使用。传统 evolutionary algorithms 虽然适合黑箱优化，但在高维空间中候选生成效率较低。
 
-- 提高 binding affinity；
-- 提高 synthesizability；
-- 提高 drug-likeness。
+扩散模型擅长学习复杂高维数据分布，因此近年来被用于分子生成和优化。但已有基于扩散模型的多目标优化方法通常存在两个问题：
 
-这些目标之间不一定一致，提升一个目标可能损害另一个目标。因此，多目标优化通常追求Pareto front，而不是单一最优点。
+- 若训练/微调 diffusion model，需要额外数据和训练成本。
+- 若只把 diffusion model 当作 EA 中的 frozen refiner，则没有改变推理过程内部的生成分布，优化效率受限。
 
-在黑盒优化中，目标函数不可微，只能通过评估得到数值，因此难以使用高效的梯度方法。
-
-### 传统 evolutionary algorithm 的局限
-
-传统进化算法如 EA、MOEA/D、NSGA-II、SPEA2 常用于多目标黑盒优化，但在高维空间中效率较低。尤其在分子生成这类高维结构生成任务中，传统 mutation / crossover 很难稳定地产生高质量候选样本。
-
-### 扩散模型的机会与不足
-
-Diffusion models擅长学习复杂高维数据分布，因此近年来被用于分子优化和高维黑盒优化。
-
-已有方法大致分为两类：
-
-1. **训练或微调扩散模型以适应目标分布**
-   - 例如为数据标注多目标值，再训练 conditional diffusion model 或 fine-tune diffusion model。
-   - 缺点：
-     - 数据需求大；
-     - 训练成本高；
-     - 不适合快速适配新目标。
-
-2. **将预训练扩散模型作为外部优化循环中的 refiner**
-   - 例如 DiffSBDD、EGD。
-   - 使用进化算法产生候选，再通过扩散模型 refinement。
-   - 缺点：
-     - 扩散模型被当成 frozen black-box refiner；
-     - 没有利用扩散生成过程内部的分布转移；
-     - 可能受限于预训练模型原始分布，导致优化效率不足。
-
-本文的动机是：
-
-> 与其把扩散模型当作外部优化循环中的黑盒 refinement 模块，不如直接在扩散模型的反向推理过程中进行多目标分布引导。
+本文的动机是：扩散模型的反向生成过程本身就是逐步转移分布的过程。如果能在每个 reverse diffusion step 中根据多目标偏好对候选进行加权重采样，就可以在推理时把生成分布推向目标 Boltzmann distribution，从而提高多目标生成效率。
 
 ## 核心思想
 
-本文核心思想是：
+IMG 的核心思想可以概括为：
 
-> 在扩散模型反向生成的每一步，不直接从预训练模型的转移分布采样，而是生成多个候选，然后根据多目标偏好权重计算加权得分，并进行重采样，使最终样本逐步服从期望的多目标 Boltzmann 分布。
+> 将预训练扩散模型每一步的反向转移分布视为 base distribution，然后根据候选样本的多目标值计算权重，并在反向扩散过程中执行 weighted resampling，使最终样本近似服从一个多目标 Boltzmann mixture target distribution。
 
-具体包括三层思想：
+论文先从 distributional optimization 出发，对单个目标 $f_k$ 构造 KL-regularized distributional optimization：
 
-1. **分布式多目标优化视角**
-   - 对每个目标函数 $f_k$，定义一个 KL-regularized distributional optimization 问题。
-   - 目标是在降低期望目标值的同时，不偏离 base distribution 太远。
-   - 得到指数倾斜形式的最优分布：
-     
 $$
-q^*_k(x;\lambda) \propto p_{base}(x)e^{-f_k(x)/\lambda_k}
+q_k^*(x;\lambda)=\arg\min_q \left\{\mathbb{E}_q[f_k(x)] + \lambda_k \mathrm{KL}(q(x)||p_{base}(x))\right\}
 $$
 
-2. **多目标 Boltzmann mixture distribution**
-   - 将多个单目标最优分布混合，得到多目标目标分布：
-     
+其闭式解是指数倾斜分布：
+
 $$
-q^*_{mix}(x;\lambda) = p_{base}(x) \sum_k e^{-(f_k(x)-c_k)/\lambda_k}
+q_k^*(x;\lambda)\propto p_{base}(x)e^{-\frac{f_k(x)}{\lambda_k}}
 $$
 
-   - 其中权重项：
-     
+对于多个目标，论文将各单目标最优分布混合，得到：
+
 $$
-W(x;\lambda)=\sum_k e^{-(f_k(x)-c_k)/\lambda_k}
+q_{mix}^*(x;\lambda)
+= p_{base}(x) \sum_k e^{-\frac{f_k(x)-c_k}{\lambda_k}}
 $$
 
-3. **Inference-time weighted resampling**
-   - 在扩散模型每个反向步骤中，把预训练转移分布 $p_\theta(x_t,t)$ 当作 base distribution。
-   - 从中采样多个候选；
-   - 评估其多目标函数值；
-   - 按 $W(x;\lambda)$ 进行重采样或贪婪选择；
-   - 从而将扩散生成过程推向目标多目标分布。
+其中权重函数为：
+
+$$
+W(x;\lambda)=\sum_k e^{-\frac{f_k(x)-c_k}{\lambda_k}}
+$$
+
+因此，只要从 base distribution 采样候选，再按 $W(x;\lambda)$ 进行重采样，就可以把样本分布从 $p_{base}$ 推向目标分布 $q_{mix}^*$。
+
+IMG 将这一思想嵌入扩散推理过程：每个 reverse diffusion step 都从预训练模型产生多个候选，再按不同 preference vector 对候选进行选择，从而一次生成多个对应不同 trade-off 的样本。
 
 ## 方法框架
 
-### 1. Distributional Multi-Objective Black-box Optimization
+IMG 的方法框架包含四个关键组成部分：
 
-本文首先从分布优化角度形式化多目标黑盒优化。
+1. **Distributional multi-objective formulation**  
+   将多目标优化转化为目标分布构造问题，而不是直接搜索单个最优点。
 
-对于单个目标 $f_k$，定义：
+2. **Multi-target Boltzmann distribution**  
+   对每个目标得到一个指数倾斜分布，再将多个目标分布混合，得到多目标目标分布。
 
-$$
-q^*_k(x;\lambda)=\arg\min_{q(x)\in P} \left\{ \mathbb{E}_{q(x)}[f_k(x)] + \lambda_k KL(q(x)||p_0(x)) \right\}
-$$
+3. **Inference-time weighted resampling**  
+   在扩散模型每个 reverse step 中，从预训练转移分布采样多个候选，并根据多目标权重函数进行重采样。
 
-其闭式解为：
+4. **Preference vector generation**  
+   为 batch 中不同样本分配不同 preference vector，使一次 diffusion pass 同时覆盖多个 trade-off 区域。
 
-$$
-q^*_k(x;\lambda) \propto p_{base}(x)e^{-f_k(x)/\lambda_k}
-$$
+在分子生成实验中，IMG 使用 **DiffSBDD** 的预训练模型作为基础生成器。论文并不是重新训练扩散模型，而是在其推理过程中插入多目标选择机制。
 
-然后对所有目标构建 mixture：
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-01.jpg]]
 
-$$
-q^*_{mix}(x;\lambda)=\sum_k \pi_k q^*_k(x;\lambda)
-$$
-
-可写为：
-
-$$
-q^*_{mix}(x;\lambda)=p_{base}(x)\sum_k e^{-(f_k(x)-c_k)/\lambda_k}
-$$
-
-其中：
-
-- $p_{base}$：基础分布；
-- $\lambda_k$：第 $k$ 个目标的偏好/温度参数；
-- $c_k$：吸收归一化常数与 mixture weight 的项；
-- $W(x;\lambda)$：将 base distribution 转换为 target distribution 的权重因子。
-
-### 2. IMG: Inference-time Multi-target Generation
-
-Inference-time Multi-target Generation，简称 **IMG**，是在扩散模型推理时执行的多目标生成算法。
-
-在每个扩散时间步 $t$：
-
-- 将预训练 reverse transition $p_\theta(x_t,t)$ 视作 base distribution；
-- 生成候选 $x_{t-1}$；
-- 用目标函数 $f_1,\dots,f_n$ 评估候选；
-- 根据偏好向量 $\lambda_i$ 计算权重；
-- 重采样得到该实例下一步状态。
-
-目标转移分布为：
-
-$$
-x_{t-1} \sim q^*_{mix}(x_t,t;\lambda)
-$$
-
-近似为：
-
-$$
-x_{t-1} \sim p_\theta(x_t,t)W(x;\lambda)
-$$
-
-### 3. Batch-level multi-target generation
-
-为了生成覆盖不同 trade-off 的样本，IMG 对 batch 中不同样本分配不同 preference vector：
-
-$$
-\lambda_i \in \mathbb{R}^n
-$$
-
-这样一个 batch 中的不同实例对应不同目标分布，可以同时生成多种目标权衡解。
-
-### 4. Preference vector generation
-
-当用户没有指定 preference distribution $p(\lambda)$ 时，作者提出用Quasi-Monte Carlo方法在正超球面表面均匀生成 preference vectors。
-
-该方法对应论文中的 **Algorithm 2: Preference Weight Vectors Generation**。
-
-其目的：
-
-- 让 preference vectors 更均匀覆盖多目标偏好空间；
-- 避免普通 Monte Carlo 采样出现聚集和空洞；
-- 提高生成样本在Pareto front上的覆盖多样性。
+该图展示了 IMG 在单次 diffusion inference pass 中生成的 9 个分子，目标蛋白口袋为 PDB ID: 5ndu。它用于定性说明 IMG 能够在一次推理中生成多样化且面向多个目标优化的候选分子。
 
 ## 算法流程
 
-### Algorithm 1: Inference-time Multi-Target Generation (IMG)
+### Algorithm 1：Inference-time Multi-Target Generation (IMG)
 
-输入：
+输入包括：
 
-- 预训练扩散模型 $p$
+- 预训练扩散模型 $p_\theta$
 - batch size $N$
 - resampling size $M$
-- 多目标函数：
-  
-$$
-f:\mathbb{R}^d \to \mathbb{R}^n
-$$
+- 多目标黑箱函数 $f:\mathbb{R}^d\to\mathbb{R}^n$
 
-输出：
+算法主要步骤如下：
 
-- 生成样本集合：
-  
-$$
-\{x^0_0,\dots,x^N_0\}
-$$
+1. 为 batch 中每个样本初始化一个 preference vector $\lambda^i$。
+2. 初始化扩散起点。一般算法描述中从 Gaussian noise $x_T\sim \mathcal{N}(0,I)$ 开始；在分子生成实验中则从参考分子加噪后的状态开始。
+3. 对每个 reverse diffusion step $t=T,\dots,1$：
+   - 对每个当前状态 $x_t^i$，从预训练反向转移分布采样 $M$ 个候选：
+     $$
+     \tilde{x}_{t-1}^{ij}\sim p_\theta(x_t^i,t)
+     $$
+   - 总共得到 $B=N\times M$ 个候选。
+   - 对每个候选计算多目标值：
+     $$
+     y^b=[f_1(x^b),\dots,f_n(x^b)]
+     $$
+   - 对 batch 中每个 preference vector $\lambda^i$，根据权重函数选择一个候选作为新的 $x_{t-1}^i$。
+4. 输出最终 batch 样本 $\{x_0^i\}$。
 
-流程概括：
+### Greedy Sampling Without Replacement
 
-1. 为 batch 中每个样本初始化 preference vector：
-   
-$$
-\lambda_i \sim p(\lambda), \quad i\in[N]
-$$
-
-2. 初始化扩散起点：
-   - 通用形式为：
-     
-$$
-x^i_T \sim \mathcal{N}(0,I)
-$$
-
-   - 分子生成实验中使用 DiffSBDD 的 diversify strategy，从 reference molecule 加噪得到 $x_\tau$。
-
-3. 对每个反向扩散时间步 $t=T,\dots,1$：
-
-   1. 对每个 batch 样本 $x^i_t$，采样 $M$ 个候选：
-      
-$$
-\tilde{x}^{ij}_{t-1}\sim p_\theta(x^i_t,t)
-$$
-
-   2. 计算每个候选的多目标值：
-      
-$$
-y^{ij}_{t-1}=f(\tilde{x}^{ij}_{t-1})
-$$
-
-   3. 收集全部候选形成 buffer：
-      
-$$
-B=N\times M
-$$
-
-   4. 对每个 preference vector $\lambda_i$，从 buffer 中选择一个候选作为 $x^i_{t-1}$。
-
-4. 返回最终生成样本。
-
-### Practical implementation
-
-#### 预计算 objective values
-
-为了避免重复评估目标函数，论文先为 buffer 中所有候选预计算：
+理论上可以按 categorical distribution 进行概率采样：
 
 $$
-y^b=[f_1(x^b),\dots,f_n(x^b)]
+P(x_{t-1}=x^b;\lambda^i)
+=
+\frac{W(x^b;\lambda^i)}
+{\sum_{x'\in X}W(x';\lambda^i)}
 $$
 
-然后用：
+但论文指出小 batch 下概率近似可能不稳定，因此实际采用 **greedy sampling without replacement**：
 
-$$
-\tilde{W}(y^b;\lambda_i)=\sum_k e^{-(y^b_k-c_k)/\lambda^i_k}
-$$
+- 对每个 preference vector 选择权重最优的候选；
+- 被选中的候选从 buffer 中移除，避免多个样本重复选择同一候选；
+- 这样有助于提升 batch 内多样性。
 
-进行选择。
+需要注意：正文中公式 (18) 写作 $\arg\min \tilde{W}$，但前文描述为选择最大权重的候选；这里存在符号方向上的潜在不一致，待补充原文/PDF 后确认。
 
-#### Greedy Sampling Without Replacement
+### Algorithm 2：Preference Weight Vectors Generation
 
-虽然理论上可以按 categorical distribution 概率采样，但小 batch 时近似可能不稳定。论文实际采用 greedy sampling without replacement：
+当用户没有给定 preference distribution $p(\lambda)$ 时，论文提出使用正超球面第一象限上的均匀分布作为先验，并用 **Quasi-Monte Carlo** 生成更均匀的 preference vectors。
 
-- 对每个 $\lambda_i$，选择权重最大的候选；
-- 一旦候选被选中，就从 buffer 中移除；
-- 防止多个 preference vector 选择同一个样本；
-- 增加 batch 内多样性。
+流程大致为：
 
-论文算法中公式写作：
+1. 先在 $(n-1)$ 维 unit cube 中用 lattice rule 生成 QMC points。
+2. 将 QMC points 分成角度变量 $\Theta$ 和辅助变量 $X$。
+3. 基于 **Tashiro (1977)** 的球面均匀采样方法，将这些点映射到正超球面表面。
+4. 输出 preference weight vectors $\Lambda$。
 
-$$
-b^*=\arg\min_{b\in[B]}\tilde{W}(y^b;\lambda_i)
-$$
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-04.jpg]]
 
-但正文描述为选择最大权重候选。这里存在符号/方向上的潜在不一致，需待补充原文/PDF 后确认。
+该图是 Figure 5 的一部分，用于比较三目标空间中 preference vector 的生成效果。这里展示了较小样本数下 Algorithm 2 与 Tashiro (1977) 方法的分布差异，重点是说明 QMC-based 方法能减少聚集和空洞。
 
-#### Coefficient $c_k$
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-05.jpg]]
 
-理论上：
+该图继续展示不同样本规模下的 preference vector 分布对比。论文强调，Algorithm 2 在样本数量增加时仍能保持更均匀的覆盖。
 
-$$
-c_k=\lambda_k\log(Z_k/\pi_k)
-$$
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-06.jpg]]
 
-其中 $Z_k$ 是不可解归一化常数。
+该图对应 Figure 5 的后续子图，展示三目标 preference space 中更多样本数的分布。与随机 Monte Carlo 相比，QMC-based 采样在视觉上更少出现局部簇集。
 
-实际实现中，作者将 $c_k$ 设置为优化过程中的 running upper bound，即每个目标当前观察到的最差 objective value。
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-07.jpg]]
 
-#### Preference vector
+该图展示 Algorithm 2 和 Tashiro (1977) 在另一组样本数设置下的对比。其作用是支持论文关于“preference vectors 更均匀，有利于覆盖 Pareto trade-offs”的论点。
 
-preference vector 的设计影响最终样本多样性。本文提出用基于Quasi-Monte Carlo的采样方法，在正超球面表面生成较均匀的 preference vectors。
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-08.jpg]]
+
+该图继续比较不同采样数下的 preference vector 覆盖效果。QMC-based 方法被用作没有用户偏好时的默认 preference prior。
+
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-09.jpg]]
+
+该图展示更大样本数下两种采样方法的分布差异。论文希望通过该组图说明 Algorithm 2 相比普通随机采样更稳定、更均匀。
+
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-10.jpg]]
+
+该图是 Figure 5 的后续子图，展示 Algorithm 2 在较大 $N$ 下生成的 preference vectors。它说明 QMC-based lattice rule 可用于构造覆盖更完整的偏好方向集合。
+
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-11.jpg]]
+
+该图展示 Tashiro (1977) 方法在相同或相近样本数下的对照结果。其用途是凸显普通随机采样容易存在局部空隙和聚集。
+
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-12.jpg]]
+
+该图展示更高样本数下 Algorithm 2 的分布结果。它用于说明随着 $N$ 增加，Algorithm 2 仍能保持 preference space 的较均匀覆盖。
+
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-13.jpg]]
+
+该图展示 Figure 5 中最后一组 Algorithm 2 与 Tashiro (1977) 对比之一。论文通过这一系列图证明 QMC-based 方法更适合作为 batch preference vector 的初始化策略。
+
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-14.jpg]]
+
+该图是 Figure 5 的另一个截取部分，继续用于比较 preference vector generation methods。由于当前解析图像是 MinerU 拆分后的局部图片，具体对应的 $N$ 值需待补充原文/PDF 后确认。
 
 ## 实验设置
 
 ### 任务
 
-实验任务为多目标分子生成，具体是结构基础药物设计中的 oncology inhibitor generation。
+实验任务是多目标 3D 分子生成。论文将药物设计建模为三目标 black-box optimization：
 
-目标蛋白：
+1. **Vina score**：用于估计与目标蛋白的 binding affinity。
+2. **SA score**：用于衡量 synthesizability。
+3. **QED value**：用于衡量 drug-likeness。
 
-- PDB ID: **5ndu**
-
-参考分子：
-
-- **8V2**
+目标蛋白为 oncology inhibitor 相关的 phosphoprotein，PDB ID 为 **5ndu**。
 
 ### 预训练模型
 
-使用 **DiffSBDD** 作为预训练分子生成模型。
+论文使用 **DiffSBDD** 作为预训练分子生成模型。具体使用：
 
-具体模型：
+- **crossdocked_fullatom_cond model**
+- 训练数据为 **CrossDocked dataset** 中约 100,000 个 protein-ligand complexes
+- 条件生成目标为 target protein binding pocket
 
-- `crossdocked_fullatom_cond model`
+需要注意：正文中 “We use DiffSBDD (Sun et al. 2025)” 与参考文献中 DiffSBDD 对应 Schneuing et al. 2024，Sun et al. 2025 对应 EGD。这里可能是引用标注混乱，待补充原文/PDF 后确认。
 
-训练数据：
+### 分子生成起点
 
-- **CrossDocked dataset**
-- 包含约 100,000 protein-ligand complexes。
-
-DiffSBDD 是一个条件扩散模型，可基于目标蛋白 binding pocket 生成 3D molecules。
-
-### 多目标函数
-
-实验使用 3 个目标：
-
-1. **Vina score**
-   - 用于估计 binding affinity；
-   - 目标是最大化 binding affinity。
-
-2. **SA score**
-   - 衡量 synthesizability；
-   - 目标是提高可合成性。
-
-3. **QED value**
-   - 衡量 drug-likeness；
-   - 目标是提高类药性。
-
-论文中将所有目标取负号，使问题符合最小化形式，并归一化到 $[-1,0]$ 以提升数值稳定性和简化Hypervolume计算。
-
-### 生成方式
-
-虽然 Algorithm 1 描述从 Gaussian noise 开始：
+虽然 Algorithm 1 描述的是从 Gaussian noise 开始：
 
 $$
 x_T\sim \mathcal{N}(0,I)
 $$
 
-但在实验中，作者采用 DiffSBDD 的 diversify strategy：
+但实验中遵循 **DiffSBDD** 的 diversify strategy：
 
-$$
-x_\tau \sim p(x_\tau|x_{ref})
-$$
+1. 给定参考分子 $x_{ref}$；
+2. 通过 forward diffusion 加噪得到：
+   $$
+   x_\tau\sim p(x_\tau|x_{ref})
+   $$
+3. 从 $t=\tau$ 开始执行 reverse diffusion。
 
-即从参考分子加噪后的状态开始反向生成。
+论文使用：
 
-使用参数：
-
-- diversify steps：
-  
-$$
-\tau=100
-$$
+- target protein：**5ndu**
+- reference molecule：**8V2**
+- diversify steps：$\tau=100$
 
 ### IMG 参数
 
-- batch size：
-  
-$$
-N=64
-$$
+主要参数：
 
-- resampling size：
-  
-$$
-M\in\{4,8,16\}
-$$
-
-- 总 objective evaluations：
-  
-$$
-N\times M\times \tau
-$$
+- batch size：$N=64$
+- resampling batch size：$M\in\{4,8,16\}$，正文结果中也提到 $M=\{8,16,32\}$
+- 每次运行 objective evaluations 数量：
+  $$
+  N\times M\times \tau
+  $$
 
 ### Baselines
 
-比较方法包括：
+论文比较了：
 
 1. **EGD**
-   - 来自 Sun et al. 2025；
-   - 面向多目标 3D molecular generation；
-   - 使用扩散模型辅助 evolutionary search；
-   - 原实现当时未开源，本文作者自行实现。
-
 2. **DiffSBDD-EA (Mean)**
-   - 基于 DiffSBDD 的 evolutionary algorithm；
-   - 原方法偏单目标；
-   - 本文用目标均值作为聚合 fitness。
-
 3. **DiffSBDD-EA (SPEA2)**
-   - 使用 SPEA2 fitness function 聚合/选择。
 
-Baseline 设置：
+其中 **DiffSBDD-EA** 原本为单目标优化设计，论文将其扩展为多目标 baseline：
 
-- population size：
-  
-$$
-64
-$$
+- **Mean**：将多个目标取平均作为单一 fitness。
+- **SPEA2**：使用 **SPEA2** fitness function。
 
-- evolutionary steps：
-  
-$$
-3000
-$$
+baseline 设定：
 
-- full run objective evaluations：
-  
-$$
-64\times3000=192k
-$$
+- population size：64
+- evolutionary steps：3000
+- 总 objective evaluations：
+  $$
+  64\times 3000=192k
+  $$
 
-### Hybrid 方法
+### 评价指标
 
-作者还测试了 **EGD+IMG**：
+核心指标是 **hypervolume (HV)**。由于论文将目标值归一化到 $[-1,0]$ 且越小越好，同时使用原点作为 reference point，HV 定义为 Pareto front 到 reference point 围成的体积。
 
-- 先运行 EGD 500 steps；
-- 用 EGD 最终 population 作为 IMG 起点；
-- IMG resampling size：
-  
-$$
-M=8
-$$
-
-用于验证 IMG 是否可以集成进现有迭代优化框架中。
-
-### 评估指标
-
-主要指标为Hypervolume。
-
-给定解集：
-
-$$
-X=\{x_1,\dots,x_N\}
-$$
-
-参考点为原点：
-
-$$
-0\in\mathbb{R}^n
-$$
-
-因为目标归一化后上界为 0。
-
-Hypervolume 计算为 Pareto front 与 reference point 围成的体积。HV 越大，表示解集在收敛性和多样性上越好。
-
-实验重复：
-
-- 每个算法独立运行 3 次；
-- 报告平均 HV 和标准差。
+论文每个算法独立运行 3 次，报告平均 hypervolume 与标准差。
 
 ## 主要结果
 
-### 表 1 结果摘要
+### Table 1：性能比较
 
-#### 25.6k objective evaluations
+论文报告在不同 objective evaluation budget 下的 hypervolume、Pareto front 数量和运行时间。关键结果如下：
 
-| Algorithm | Hypervolume | Pareto Front 数量 | Run Time |
-|---|---:|---:|---:|
-| IMG | 0.5732 ± 0.0387 | 12.33 | 1h 12m |
-| EGD | 0.5379 ± 0.0301 | 17.00 | 2h 34m |
-| DiffSBDD-EA (Mean) | 0.5366 ± 0.0374 | 9.00 | 2h 39m |
-| DiffSBDD-EA (SPEA2) | 0.5149 ± 0.0375 | 18.00 | 2h 41m |
+| Objective Evaluations | Algorithm | Hypervolume | Pareto Front 数量 | Run Time |
+|---:|---|---:|---:|---|
+| 25.6k | IMG | 0.5732 ± 0.0387 | 12.33 | 1h 12m |
+| 25.6k | EGD | 0.5379 ± 0.0301 | 17.00 | 2h 34m |
+| 25.6k | DiffSBDD-EA (Mean) | 0.5366 ± 0.0374 | 9.00 | 2h 39m |
+| 25.6k | DiffSBDD-EA (Spea2) | 0.5149 ± 0.0375 | 18.00 | 2h 41m |
+| 51.2k | IMG | 0.6450 ± 0.0964 | 12.00 | 1h 59m |
+| 51.2k | EGD | 0.5747 ± 0.0480 | 18.00 | 5h 8m |
+| 51.2k | DiffSBDD-EA (Mean) | 0.5619 ± 0.0501 | 8.00 | 5h 18m |
+| 51.2k | DiffSBDD-EA (Spea2) | 0.5253 ± 0.0623 | 10.00 | 5h 22m |
+| 102.4k | IMG | 0.6972 ± 0.0394 | 7.67 | 3h 42m |
+| 102.4k | EGD | 0.5732 ± 0.0396 | 19.00 | 10h 13m |
+| 102.4k | DiffSBDD-EA (Mean) | 0.5824 ± 0.0373 | 3.00 | 10h 37m |
+| 102.4k | DiffSBDD-EA (Spea2) | 0.5515 ± 0.0318 | 19.00 | 10h 44m |
+| 204.8k | IMG | 0.7413 ± 0.0119 | 13.00 | 7h 24m |
+| 32k + 51.2k | EGD+IMG | 0.7447 ± 0.0496 | 13.67 | 5h 11m |
 
-#### 51.2k objective evaluations
+主要观察：
 
-| Algorithm | Hypervolume | Pareto Front 数量 | Run Time |
-|---|---:|---:|---:|
-| IMG | 0.6450 ± 0.0964 | 12.00 | 1h 59m |
-| EGD | 0.5747 ± 0.0480 | 18.00 | 5h 8m |
-| DiffSBDD-EA (Mean) | 0.5619 ± 0.0501 | 8.00 | 5h 18m |
-| DiffSBDD-EA (SPEA2) | 0.5253 ± 0.0623 | 10.00 | 5h 22m |
+- 在相同 objective evaluation budget 下，IMG 通常取得更高 hypervolume。
+- IMG 的运行时间也明显短于多个 EA baseline。
+- baseline 方法在约 50k evaluations 后性能提升趋于平缓，而 IMG 随着 resampling size 增大仍能继续提升。
+- **EGD+IMG** 的组合取得最高表格结果之一，说明 IMG 可作为模块接入已有 iterative optimization framework。
 
-#### 102.4k objective evaluations
+### Hypervolume 曲线
 
-| Algorithm | Hypervolume | Pareto Front 数量 | Run Time |
-|---|---:|---:|---:|
-| IMG | 0.6972 ± 0.0394 | 7.67 | 3h 42m |
-| EGD | 0.5732 ± 0.0396 | 19.00 | 10h 13m |
-| DiffSBDD-EA (Mean) | 0.5824 ± 0.0373 | 3.00 | 10h 37m |
-| DiffSBDD-EA (SPEA2) | 0.5515 ± 0.0318 | 19.00 | 10h 44m |
+论文 Figure 2 展示 hypervolume 随 objective evaluations 增加的变化。当前“可用图表”中没有提供 Figure 2 对应图片，因此无法嵌入；待补充原文/PDF 后确认。
 
-#### 204.8k objective evaluations / hybrid
+### Ablation：coefficient parameter 与 batch size
 
-| Algorithm | Hypervolume | Pareto Front 数量 | Run Time |
-|---|---:|---:|---:|
-| IMG | 0.7413 ± 0.0119 | 13.00 | 7h 24m |
-| EGD+IMG | 0.7447 ± 0.0496 | 13.67 | 5h 11m |
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-02.jpg]]
 
-### 主要观察
+该图展示 IMG 对超参数的消融实验。左侧比较 coefficient parameter $c$ 对 hypervolume 的影响，右侧比较 batch size $N$ 对 hypervolume 的影响。
 
-1. **IMG 在相同 objective evaluation 数量下取得更高 Hypervolume**
-   - 尤其在 $M=8,16,32$ 时明显优于 baselines。
+![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/mineru-figure-03.jpg]]
 
-2. **IMG 样本效率更高**
-   - Baselines 往往需要数百甚至数千轮扩散生成/进化；
-   - IMG 在单次 diffusion inference pass 中即可得到强结果。
+该图同样对应 Figure 4 的消融实验结果，可能是 MinerU 对同一图的拆分或重复截取。根据上下文，论文结论是 IMG 对 coefficient parameter $c$ 相对稳健，而增大 batch size $N$ 会提升 hypervolume。
 
-3. **IMG 的性能随 resampling size 增大而提升**
-   - 表明更大的候选 buffer 有助于选择更优多目标 trade-off。
+消融结论：
 
-4. **Baseline 在约 50k objective evaluations 后性能趋于平坦**
-   - 论文认为可能是因为 EA-based baseline 将预训练扩散模型作为 frozen refiner，优化分布受限于模型原始分布。
+1. **coefficient parameter $c$**  
+   静态设置 $c_1=\cdots=c_n=c$ 并在 $[-1,1]$ 范围变化时，hypervolume 有波动但整体不敏感，说明 IMG 不需要大量调参。
 
-5. **IMG 可以与 baseline 结合**
-   - EGD+IMG 进一步提升性能；
-   - 说明 IMG 可作为一个可插拔模块集成到现有优化流程中。
+2. **batch size $N$**  
+   随着 $N$ 增大，hypervolume 明显提升。原因是：
+   - 更大的 $N$ 对应更多 preference vectors；
+   - 能同时探索更多 trade-off；
+   - buffer 大小 $B=NM$ 也随之增大，候选池更丰富。
 
-### Appendix 结果
+### Pareto front 结果
 
-#### 生成分子可视化
+Appendix 中报告：
 
-论文展示了 IMG 在单次扩散推理中生成的 9 个分子，目标蛋白 pocket 为 **5ndu**。
+- IMG 单次运行生成 64 个样本；
+- 其中识别出 16 个 non-dominated Pareto points；
+- hypervolume 为 0.7640。
 
-#### Ablation: coefficient $c$
+合并四个算法的 64 个样本，共 256 个解后：
 
-- 固定：
-  - $N=32$
-  - $M=8$
-- 改变统一系数：
-  
-$$
-c\in[-1.0,1.0]
-$$
+- combined Pareto front 有 31 个 non-dominated points；
+- overall hypervolume 为 0.8103；
+- 各算法贡献：
+  - IMG：16
+  - EGD：6
+  - DiffSBDD-EA (Mean)：8
+  - DiffSBDD-EA (Spea2)：1
 
-- 结果显示 HV 对 $c$ 不高度敏感，说明 IMG 对该超参数较鲁棒。
-
-#### Ablation: batch size $N$
-
-- 固定：
-  
-$$
-M=32
-$$
-
-- 改变：
-  
-$$
-N\in\{2,4,8,16,32\}
-$$
-
-- 结果显示 batch size 越大，最终 HV 越高。
-- 原因：
-  - 更多 preference vectors；
-  - 更完整覆盖 Pareto front；
-  - 更大的 candidate buffer $B=NM$。
-
-#### QMC preference vector
-
-作者展示 Algorithm 2 相比 Tashiro (1977) 的 uniform Monte Carlo sampling，可以更均匀地产生 preference vectors，减少聚集和空洞。
-
-#### Pareto front 分析
-
-在 204.8k objective evaluations 下：
-
-- IMG 从 64 个样本中得到 16 个非支配 Pareto points；
-- HV 为 0.7640。
-
-将四个算法各 64 个样本合并，共 256 个解：
-
-- combined Pareto front 有 31 个非支配点；
-- combined HV 为 0.8103。
-
-各算法贡献：
-
-| Algorithm | Combined Pareto Front 贡献点数 |
-|---|---:|
-| IMG | 16 |
-| EGD | 6 |
-| DiffSBDD-EA (Mean) | 8 |
-| DiffSBDD-EA (SPEA2) | 1 |
-
-说明 IMG 对最终 combined Pareto front 贡献超过一半，且覆盖更均匀。
+当前“可用图表”中没有提供 Figure 6 和 Figure 7 对应图片，因此无法嵌入；待补充原文/PDF 后确认。
 
 ## 创新点
 
-1. **提出 Distributional Multi-objective Black-box Optimization 框架**
-   - 将多目标黑盒优化转化为 KL-regularized distributional optimization。
-   - 推导出多目标 Boltzmann mixture distribution。
+1. **提出 inference-time 的多目标扩散生成算法 IMG**  
+   不需要重新训练或微调扩散模型，而是在 reverse diffusion 过程中通过 weighted resampling 调整生成分布。
 
-2. **提出 Inference-time Multi-target Generation (IMG)**
-   - 不需要重新训练扩散模型；
-   - 不需要 surrogate model；
-   - 不需要目标函数可微；
-   - 直接在扩散反向推理过程中进行多目标 weighted resampling。
+2. **从分布优化角度推导 multi-target Boltzmann distribution**  
+   论文将每个目标的 KL-regularized optimal distribution 混合，得到可用于重采样的多目标目标分布。
 
-3. **单次 diffusion inference pass 生成多目标 Pareto 解集**
-   - 相比需要多轮 EA 循环的 baseline，IMG 样本效率更高。
+3. **给出 negative log-likelihood 解释**  
+   论文定义：
+   $$
+   \mathcal{L}(x;\lambda)
+   =
+   -\log\left(\sum_k e^{-\frac{f_k(x)-c_k}{\lambda_k}}\right)
+   $$
+   并说明当 $\beta=1$ 时，对该 loss 做 KL-regularized distributional optimization 得到的最优分布与前述 mixture target distribution 成比例。
 
-4. **提出多目标 Boltzmann 分布的 negative log-likelihood 解释**
-   - 定义：
-     
-$$
-L(x;\lambda)=-\log\left(\sum_k e^{-(f_k(x)-c_k)/\lambda_k}\right)
-$$
+4. **用 batch preference vectors 实现 single-pass Pareto front generation**  
+   batch 中每个样本对应一个不同的 preference vector，使一次 diffusion pass 同时生成多个 trade-off 解。
 
-   - 当 temperature $\beta=1$ 时，mixture optimal distribution 等价于该 NLL 目标的 KL-regularized distributional optimization 解。
+5. **提出 QMC-based preference vector generation 方法**  
+   在用户没有指定偏好时，使用正超球面表面上的均匀偏好向量，并通过 Quasi-Monte Carlo 改善覆盖均匀性。
 
-5. **提出基于 Quasi-Monte Carlo 的 preference vector generation**
-   - 在正超球面表面更均匀生成 preference vectors；
-   - 改善多目标偏好空间覆盖。
-
-6. **可插拔性**
-   - IMG 可以与现有 EA-based methods 结合，例如 EGD+IMG。
+6. **展示 IMG 可作为模块增强已有 EA-based 方法**  
+   EGD+IMG 结果显示，IMG 能进一步提升已收敛 EA population 的表现。
 
 ## 局限性
 
-1. **每个 diffusion step 需要多次 objective evaluation**
-   - IMG 的成本为：
-     
-$$
-N\times M\times \tau
-$$
+1. **依赖大量 objective evaluations**  
+   IMG 在每个 reverse diffusion step 都需要对 $N\times M$ 个候选评估多目标值。若目标评估非常昂贵，成本可能仍然较高。
 
-   - 如果目标函数评估非常昂贵，成本仍可能较高。
+2. **实验主要集中在一个分子生成任务**  
+   当前解析文本中主要实验是针对 5ndu target protein 的三目标分子生成。方法在其他任务、更多目标数或非分子领域中的表现待补充原文/PDF 后确认。
 
-2. **需要目标函数能在中间 noisy state 上评估**
-   - 实验中作者在每个 reverse diffusion step 对候选进行 objective evaluation。
-   - 对于某些数据类型，中间状态可能不是合法样本，如何评估目标需要具体处理。
-   - 该问题在本文中未充分展开，待补充原文/PDF 后确认。
+3. **weight function 中 coefficient $c_k$ 的理论值不可直接获得**  
+   $c_k$ 涉及 normalization constant $Z_k$，实际实现中使用 running upper bound 或静态值近似。虽然消融显示稳健，但理论与实践之间仍有近似。
 
-3. **实验主要集中在单个分子生成任务**
-   - 使用目标蛋白 **5ndu** 和参考分子 **8V2**。
-   - 是否能泛化到更多蛋白、更多分子任务或非分子任务，需要更多实验验证。
+4. **greedy sampling 的分布一致性需要进一步确认**  
+   理论分布对应概率重采样，而实际使用 greedy sampling without replacement。两者之间的偏差和收敛性质待补充原文/PDF 后确认。
 
-4. **EGD baseline 为作者自行实现**
-   - 因为 EGD 原实现当时未开源。
-   - 复现公平性和实现细节需进一步检查，待补充原文/PDF 后确认。
+5. **部分公式或引用存在潜在不一致**  
+   例如选择最大权重与公式中的 $\arg\min \tilde{W}$ 表述，以及 DiffSBDD 引用标注问题，需结合 PDF 原文确认。
 
-5. **greedy selection 公式与文字描述可能存在方向不一致**
-   - 文中描述选择 largest weight；
-   - Algorithm 中写为 `arg min`；
-   - 需要确认是否由于目标取负、权重定义或排版导致。
-
-6. **preference vector 的实际影响仍依赖 batch size**
-   - 当 batch size 较小、目标维度较高时，Pareto front 覆盖可能不足。
-
-7. **理论分布与有限 batch 近似之间存在差距**
-   - weighted resampling 在足够大 batch 下近似目标分布；
-   - 小 batch 时作者采用 greedy strategy，但其理论误差未充分分析。
+6. **可用图表不完整**  
+   当前可用图片缺少正文 Figure 1、Figure 2、Appendix Figure 6 和 Figure 7 的 Obsidian raw 路径版本，仅能根据文本描述记录。
 
 ## 相关概念
 
 - [[多目标优化]]
-- [[多目标黑盒优化]]
-- [[黑盒优化]]
-- [[分布式优化]]
-- [[Distributional Optimization]]
-- [[KL-regularized Optimization]]
+- [[黑箱优化]]
+- [[Pareto Front]]
+- [[Hypervolume Indicator]]
 - [[Boltzmann Distribution]]
-- [[Multi-target Boltzmann Distribution]]
-- [[Pareto front]]
-- [[Pareto optimality]]
-- [[Non-dominated Solutions]]
-- [[Hypervolume]]
-- [[Preference Vector]]
-- [[Weighted Resampling]]
-- [[Greedy Sampling Without Replacement]]
+- [[KL 正则化]]
 - [[Quasi-Monte Carlo]]
 - [[扩散模型]]
-- [[Denoising Diffusion Probabilistic Models]]
-- [[Reverse Diffusion Process]]
-- [[Inference-time Optimization]]
+- [[分子优化]]
 - [[分子生成]]
-- [[Structure-based Drug Design]]
-- [[3D Molecule Generation]]
-- [[Drug-likeness]]
-- [[Binding Affinity]]
-- [[Synthesizability]]
-- [[Vina Score]]
-- [[SA Score]]
-- [[QED]]
-
 ## 相关方法
 
 - [[Inference-time Multi-target Generation]]
-- [[IMG]]
-- [[DiffSBDD]]
-- [[EGD]]
-- [[Evolutionary Algorithm]]
-- [[NSGA-II]]
-- [[MOEA/D]]
-- [[SPEA2]]
-- [[Diffusion Posterior Sampling]]
-- [[Conditional Diffusion Model]]
-- [[Preference-Guided Diffusion]]
-- [[Surrogate-assisted Optimization]]
-- [[Diffusion Model for Black-box Optimization]]
-- [[Training-free Guidance]]
-- [[Quasi-Monte Carlo Sampling]]
-- [[Tashiro Sphere Sampling]]
+- [[Weighted Resampling]]
+- [[Preference Vector Generation]]
+- [[Greedy Sampling Without Replacement]]
+## 相关数据集
 
+- [[CrossDocked dataset]]
+## 相关模型
+
+- [[DiffSBDD]]
 ## 相关论文
 
-- [[Distributional Multi-objective Black-box Optimization for Diffusion-model Inference-time Multi-Target Generation]]
-- [[DiffSBDD]]
-  - Schneuing et al. 2024, *Structure-based drug design with equivariant diffusion models*
-- [[EGD]]
-  - Sun et al. 2025, *Evolutionary training-free guidance in diffusion model for 3D multi-objective molecular generation*
+- [[Structure-based drug design with equivariant diffusion models]]
+- [[Evolutionary training-free guidance in diffusion model for 3D multi-objective molecular generation]]
 - [[Preference-Guided Diffusion for Multi-Objective Offline Optimization]]
-  - Annadani et al. 2025
-- [[BInD]]
-  - Lee et al. 2024, *Bond and Interaction-Generating Diffusion Model for Multi-Objective Structure-Based Drug Design*
-- [[EmoDM]]
-  - Yan and Jin 2024, *A diffusion model for evolutionary multi-objective optimization*
-- [[Diffusion Models for Black-box Optimization]]
-  - Krishnamoorthy et al. 2023
-- [[Training-free multi-objective diffusion model for 3D molecule generation]]
-  - Han et al. 2023
-- [[Denoising Diffusion Probabilistic Models]]
-  - Ho et al. 2020
-- [[Diffusion Models Beat GANs on Image Synthesis]]
-  - Dhariwal and Nichol 2021
-- [[MOEA/D]]
-  - Zhang and Li 2007
-- [[NSGA-II]]
-  - Deb et al. 2000
-- [[SPEA2]]
-  - Zitzler et al. 2001
-- [[GuacaMol]]
-  - Brown et al. 2019
-- [[DrugEx v2]]
-  - Liu et al. 2021
+- [[Training-free multi-objective diffusion model for 3d molecule generation]]
+- [[Diffusion models for black-box optimization]]
+- [[Smooth Tchebycheff Scalarization for Multi-Objective Optimization]]
 
 ## 源文件
 
-- citekey: `tanDistributionalMultiobjectiveBlackbox2025`
-- title: **Distributional Multi-objective Black-box Optimization for Diffusion-model Inference-time Multi-Target Generation**
-- authors: Kim Yong Tan, Yueming Lyu, Ivor Tsang, Yew-Soon Ong
-- year: 2025
-- venue: 待补充原文/PDF 后确认
-- DOI: `10.48550/ARXIV.2510.26278`
-- arXiv: `2510.26278`
-- collections: 多目标分子优化
+- Zotero citekey：`tanDistributionalMultiobjectiveBlackbox2025`
+- 标题：**Distributional Multi-objective Black-box Optimization for Diffusion-model Inference-time Multi-Target Generation**
+- 作者：Kim Yong Tan, Yueming Lyu, Ivor Tsang, Yew-Soon Ong
+- 年份：2025
+- DOI：`10.48550/ARXIV.2510.26278`
+- Collections：多目标分子优化
+- 正文来源：MinerU full.md
 
-## 图表摘录
+## 代码与数据
 
-![[raw/zotero/images/多目标分子优化/2025 - 扩散推理时多目标生成的分布式多目标黑箱优化 - tanDistributionalMultiobjectiveBlackbox2025/page-001.png]]
+### 代码
+
+未在当前解析文本中发现明确代码仓库。
+
+### 数据集 / Benchmark
+
+未在当前解析文本中发现明确数据集或 benchmark 链接。
+
+### 其他链接
+
+未在当前解析文本中发现其他外部资源链接。
 
 ## Zotero 原始摘要
 
@@ -793,59 +482,21 @@ Diffusion models have been successful in learning complex data distributions. Th
 
 ## 我的理解
 
-这篇论文的关键价值在于，它没有把扩散模型仅仅当成一个外部优化器中的“生成候选/修复候选”的黑盒模块，而是直接进入扩散模型的反向生成链，在每一步用多目标权重重采样来改变生成轨迹。
+这篇论文的关键不是提出一个新的扩散模型结构，而是提出一种“推理时分布重加权”的使用方式。它把扩散模型每一步的反向转移分布当作可采样的 base distribution，然后用黑箱目标函数对候选进行筛选，从而把生成过程逐步偏向多目标高价值区域。
 
-从优化角度看，IMG 像是在做一种“推理时分布搬运”：
+与 EA-based 方法相比，IMG 的优势在于它不是每一代调用扩散模型作为 refiner，而是直接在一次反向扩散链内部做多目标选择。这样做的直观含义是：优化压力被分布式地施加在整个 denoising trajectory 上，而不是只在生成完成后或 EA 外循环中筛选。
 
-- 原始扩散模型给出的是数据分布附近的高质量候选；
-- 多目标 Boltzmann 权重告诉模型哪些候选更符合当前 preference vector；
-- 多个 preference vectors 同时运行，使一个 batch 覆盖多个 trade-off；
-- 最终生成的不是单点最优，而是一组近似 Pareto front 的样本。
+它的 theoretical framing 也比较清楚：从 KL-regularized distributional optimization 推导出指数倾斜分布，再把多个单目标分布混合为 multi-target Boltzmann distribution。这样 weighted resampling 就不只是 heuristic，而是有目标分布解释。
 
-相比 EA-based 方法，IMG 的优势在于：
-
-- EA 通常在外层循环中反复调用扩散模型；
-- IMG 则把选择压力注入每个 reverse diffusion step；
-- 因此每一步生成都在朝多目标分布偏移，而不是等生成后再筛选。
-
-这也解释了为什么 IMG 在相同 objective evaluation 数量下能有更高 HV：它不是“生成后优化”，而是“生成中优化”。
-
-不过我认为这类方法的实际适用性高度依赖一个条件：目标函数必须能频繁、稳定、低成本地评估。如果目标函数是昂贵 wet-lab 实验或复杂模拟，那么每个 diffusion step 都评估 $N\times M$ 个候选可能不现实。分子任务中 Vina / SA / QED 相对可计算，因此比较适合 IMG。
-
-另一个值得注意的问题是中间 noisy state 的语义。对于分子 3D 结构，中间扩散状态是否总是可被 Vina / SA / QED 合理评估？论文似乎直接进行了评估，但这个细节可能影响方法的可靠性。若中间状态不是合法分子，则 objective evaluation 可能需要解码、修复或特殊处理。该点需要进一步查阅实现代码或 PDF 细节。
-
-整体上，IMG 可以被理解为一种针对多目标分子优化的 training-free、inference-time、distributional steering 方法。它与 classifier guidance / reward guidance 有相似精神，但不要求目标可微，也不训练 reward model，而是用 resampling 完成分布偏移。
+不过，实际算法中使用 greedy sampling without replacement，而理论中更自然的是概率重采样。这个 gap 是我认为后续需要重点关注的地方：greedy 可能提高小 batch 下的性能，但是否仍能严格采样到目标分布并不明显。
 
 ## 后续问题
 
-1. IMG 在每个 reverse diffusion step 中评估的候选是否都是合法分子？如果不是，目标函数如何计算？
-
-2. Algorithm 1 中 greedy selection 写作 `arg min W`，但正文说选择 largest weight，这是否是论文排版错误？
-
-3. $c_k$ 设置为 running upper bound 的具体实现细节是什么？
-   - 是全局历史最差值？
-   - 还是当前 batch 最差值？
-   - 是否对不同目标分别维护？
-
-4. preference vector $\lambda$ 的尺度如何影响搜索？
-   - 是否需要归一化？
-   - 是否对不同目标敏感？
-
-5. IMG 是否适用于目标评估昂贵的场景？
-   - 是否可以结合 surrogate model 减少 objective evaluations？
-   - 是否可以只在部分 diffusion steps 进行 resampling？
-
-6. IMG 对目标数量 $n$ 的扩展性如何？
-   - 当目标从 3 个增加到 5 个、10 个时，batch size 需求是否急剧增加？
-
-7. QMC preference vector generation 在高维目标空间中是否仍然均匀有效？
-
-8. IMG 与 classifier-free guidance、classifier guidance、DPS 等扩散引导方法之间的理论关系是什么？
-
-9. 是否可以将 IMG 与 Bayesian Optimization 或 Active Learning 结合，用于昂贵黑盒目标？
-
-10. 在更多蛋白靶点和更多 reference molecules 上，IMG 的性能是否仍然稳定？
-
-11. 是否可以把 IMG 应用于非分子任务，例如材料结构生成、工程设计或图结构优化？
-
-12. 与直接训练 preference-conditioned diffusion model 相比，IMG 在性能、效率和泛化上的边界在哪里？
+1. IMG 中 greedy sampling without replacement 与理论 categorical weighted resampling 的关系能否形式化？
+2. 如果 objective evaluation 非常昂贵，能否结合 surrogate model 或 early stopping 降低每步 $N\times M$ 次评估成本？
+3. 当目标数量 $n$ 增大时，preference vector coverage 和 batch size $N$ 之间如何权衡？
+4. coefficient $c_k$ 使用 running upper bound 是否在所有任务中都稳定？
+5. IMG 是否可用于离散序列生成、蛋白设计、材料结构生成等非分子 3D 场景？
+6. 与 classifier guidance、DPS、reward-guided diffusion 等 inference-time guidance 方法相比，IMG 的分布偏移机制有何本质差异？
+7. 当前实验是否只针对单个 target protein 5ndu？如果换 target，结果是否稳定？待补充原文/PDF 后确认。
+8. Figure 2、Figure 6、Figure 7 的原图需要补入 Obsidian raw 路径，以便完整记录实验曲线和 Pareto front 可视化。

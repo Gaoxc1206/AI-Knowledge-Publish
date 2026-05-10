@@ -20,471 +20,282 @@ original_title: "A Pareto-optimal compositional energy-based model for sampling 
 ---
 ## 一句话总结
 
-这篇论文提出 **Pareto-compositional energy-based model (pcEBM)**，将 Energy-Based Model 的组合式采样与 多目标优化 中的 Multiple Gradient Descent 结合，用于生成或优化同时满足多个性质约束的蛋白质/抗体序列，并在抗体设计任务中展示了学习非凸 Pareto front、提升多性质权衡采样质量的能力。
+本文提出 **Pareto-compositional energy-based model (pcEBM)**，把 **multiple gradient descent (MGD)** 引入 **compositional energy-based models (cEBM)** 的采样过程，用于生成或改造同时满足多个抗体性质目标的蛋白质序列，并在真实抗体设计任务中展示了更好的 Pareto front 覆盖与多目标优化能力。
 
 ## 研究问题
 
-论文关注的问题是：如何在 蛋白质序列设计，尤其是 抗体设计 中，生成同时满足多个目标性质的新序列。
+本文关注生命科学逆向设计中的多目标生成问题：如何生成新的蛋白质/抗体序列，使其不仅像真实数据分布中的序列，还能同时满足多个期望性质。
 
-具体来说，生命科学中的 inverse design 通常不仅要求生成样本符合训练数据分布，还要求满足多个下游性质。例如治疗性抗体需要同时考虑：
+在抗体设计中，论文重点考虑三个性质：
 
-- 与已知人源抗体的相似性，即 **Ab-like**；
-- 对目标抗原的结合能力，即 **binding affinity / Aff**；
-- 非特异性结合风险，即 **nonspecificity / BV score**；
-- 其他 developability 相关性质，如黏度、可制造性、临床可开发性等。
+1. **Ab-like**：与已知人类抗体序列相似；
+2. **Aff**：对目标抗原具有较好的 binding affinity；
+3. **BV score**：与 nonspecificity 相关的实验指标，论文中较高 BV score 更好。
 
-这些性质之间可能相互独立、正交，甚至冲突。因此，单目标优化或简单加权求和可能无法得到合理的候选序列。论文希望解决：
-
-> 如何从多个属性模型中采样，使生成的序列落在或接近 Pareto front，从而提供一组在多个目标之间达到不同权衡的候选抗体序列。
+核心困难在于，这些性质可能彼此冲突或近似正交。例如，单纯优化 binding affinity 可能损害 developability 相关性质。因此，论文不追求找到一个“同时最优”的单点解，而是希望生成一组位于或接近 **Pareto front** 的候选序列，使研究者能够在不同性质之间进行权衡选择。
 
 ## 背景与动机
 
-深度生成模型 已被广泛用于生命科学中的反向设计问题，包括：
+深度生成模型已经被广泛用于生命科学中的逆向设计任务，例如分子、蛋白质和抗体设计。论文提到的典型生成模型包括 **GANs**、**VAEs**、**energy-based models (EBMs)** 和 **diffusion models**。这些模型可以生成化学或物理上合理的候选设计，但在真实工业场景中的成功案例仍然较少。
 
-- GAN
-- VAE
-- EBM
-- Diffusion Model
+作者认为主要挑战包括：
 
-但论文指出，尽管这些模型在图像等领域有许多成功案例，在真实工业生命科学应用中仍面临困难：
+- 图像数据集在生成模型研究中过度代表，生命科学任务的真实约束更复杂；
+- 缺乏适用于合成生物分子数据的统一评估协议和指标；
+- 可控生成与训练稳定性仍然困难；
+- 生成结果可能过度接近训练样本，缺乏真正有价值的新颖性；
+- 实际候选分子需要同时满足多个性质，而非单一目标。
 
-1. 许多生成模型评估集中在图像数据集，生命科学任务中的评价协议和指标不足。
-2. 可控生成较难，例如生成结果需要满足多个明确性质。
-3. 模型可能生成与训练集过于相似或缺乏新颖性的样本。
-4. 对分子或抗体而言，单纯生成“看起来合理”的样本并不保证实验或开发成功。
+对于治疗性抗体而言，除 binding affinity 外，还需要关注 polyreactivity、viscosity、nonspecificity、manufacturability 等性质。如果忽略这些 developability 相关指标，可能在后续放大生产、质量控制或临床试验阶段造成严重问题。
 
-在治疗性抗体设计中，一个分子需要同时满足多种性质。只优化结合亲和力可能牺牲 developability，例如导致非特异性结合、黏度问题或制造风险。论文认为，在多个目标冲突时，通常不存在一个样本能同时最优满足所有目标，因此更合理的目标是生成一组 Pareto optimal 候选，从中根据实际偏好选择。
-
-论文的动机可以概括为：
-
-> 将 多目标优化 的 Pareto 最优思想引入 Energy-Based Model 的组合式生成，使生成过程不仅考虑多个属性模型，还能沿着 Pareto 改进方向采样。
+因此，本文的动机是：构建一种能够同时考虑多个目标性质、并能在非凸 Pareto front 上采样的生成方法。
 
 ## 核心思想
 
-论文的核心方法是 **Pareto-compositional energy-based model (pcEBM)**。
+本文的核心思想是把多目标优化中的 **multiple gradient descent (MGD)** 与 **compositional energy-based models (cEBM)** 结合。
 
-其关键思想包括：
+传统 **cEBM** 在多个属性 EBM 上做组合时，通常把多个 energy 相加：
 
-1. **每个性质对应一个 EBM**
-   - 论文训练多个属性相关的 Energy-Based Model。
-   - 每个 EBM 对应一个性质，例如 **Ab-like**、**Aff**、**BV score**。
-   - 能量越低表示该序列越符合对应性质。
-
-2. **组合多个 EBM 以表达多性质约束**
-   - 传统 compositional EBM 可以通过 product of experts 组合多个能量函数：
-     
 $$
-p(x|f_1 \wedge f_2 \wedge \cdots \wedge f_m) \propto e^{-\sum_i E(x|f_i)}
+E(x)=\sum_i E(x|f_i)
 $$
 
-   - 这相当于直接最小化多个能量的和。
+然后用 Langevin Dynamics 沿总 energy 的梯度方向采样。这相当于用固定权重把多个目标合成一个目标，容易偏向某些目标，尤其在目标冲突或 Pareto front 非凸时表现不足。
 
-3. **用 Multiple Gradient Descent 寻找 Pareto 改进方向**
-   - 简单求和会隐含固定权重，可能偏向某些目标。
-   - pcEBM 不使用固定权重，而是在每一步采样时根据当前序列动态计算一个方向，使所有目标尽可能同时下降。
-   - 该方向来自 Multiple Gradient Descent，目标是最大化所有目标中最慢的下降速率。
+本文提出的 **pcEBM** 不直接使用简单求和梯度，而是在每一步采样中根据当前样本的多个目标梯度，自适应求出一个 Pareto 改进方向。这个方向来自 **MGD**，目标是最大化所有目标中“下降最慢”的那个目标的改善速度，从而尽量让所有目标同时下降。
 
-4. **在 Langevin Dynamics 中加入 Pareto 改进方向和噪声**
-   - pcEBM 不是纯优化，而是采样。
-   - 它结合了 MGD 的 Pareto 改进方向和 Langevin Dynamics 的噪声项。
-   - 噪声有助于探索更宽的 Pareto front，而 MGD 方向有助于向多目标更优区域移动。
+直观地说：
 
-直观理解：
-
-> cEBM 是“把多个目标能量加起来一起降”；pcEBM 是“每一步动态寻找能让多个目标都尽量下降的 Pareto 方向，再加噪声进行探索”。
+- **cEBM**：把多个属性 energy 加起来，沿总梯度走；
+- **MGD**：寻找一个能同时改善多个目标的方向，但没有采样噪声；
+- **pcEBM**：用 MGD 找 Pareto 改进方向，再加入 Langevin noise 进行探索，从而既优化多目标，又覆盖更广的 Pareto front。
 
 ## 方法框架
 
-论文方法由以下部分组成。
-
-### 1. 问题设定
-
-抗体由两个氨基酸链组成，可以表示为字符序列。每个氨基酸来自 20 种氨基酸字母表。
-
-论文记序列为：
+论文首先把抗体表示为氨基酸序列。每条抗体由两条氨基酸链组成，每个氨基酸来自 20 种字符构成的字母表，典型总长度约为 $L \sim 250$。序列记为：
 
 $$
-x = (x_1, ..., x_L)
+x=(x_1,\ldots,x_L)
 $$
 
-其中：
+其中 $x_l \in \{1,\ldots,20\}$ 表示第 $l$ 个位置的氨基酸类型。
+
+对于每条序列，论文考虑 $m$ 个性质函数：
 
 $$
-x_l \in \{1, ..., 20\}
+f_i:\mathbb{R}^L \to \mathbb{R}, \quad i=1,\ldots,m
 $$
 
-表示第 $l$ 个位置的氨基酸类型。序列总长度约为：
+目标是生成新的序列 $x^*$，使其在多个性质上具有较优取值。由于多个目标可能冲突，作者采用 Pareto optimality 的视角。
+
+在方法上，论文分三步构建：
+
+1. 训练多个单属性 EBM，每个 EBM 对应一个性质；
+2. 用 compositional EBM 将多个性质组合起来；
+3. 在采样时用 MGD 自适应确定多目标下降方向，形成 **pcEBM**。
+
+![[raw/zotero/images/多目标分子优化/用于蛋白质序列采样与优化的帕累托最优组合能量模型 - tagasovskaParetooptimalCompositionalEnergybased/mineru-figure-01.jpg]]
+
+图 1 对比了 **pcEBM** 和朴素多目标采样 **cEBM** 的输出。绿色点表示起始序列，每个点表示从该起点修改得到的候选设计；pcEBM 能沿 Pareto front 产生同时改善 affinity 和 nonspecificity 的候选，而 cEBM 更容易只优化其中一个目标。
+
+### Pareto optimality
+
+论文采用如下定义：如果对于两个点 $x_1,x_2$，有
 
 $$
-L \sim 250
+f_i(x_2) \leq f_i(x_1), \forall i
 $$
 
-对每个序列，有 $m$ 个待优化性质：
+则称 $x_1$ 被 $x_2$ 支配。若一个点不被任何其他点支配，则称为全局 Pareto optimal；若在其局部邻域内不被其他点支配，则称为局部 Pareto optimal。所有 Pareto optimal 点的目标函数值集合构成 Pareto front。
+
+### Multiple Gradient Descent
+
+在线性标量化中，会用权重向量 $\lambda$ 把多个目标合成为：
 
 $$
-f_i: \mathbb{R}^L \rightarrow \mathbb{R}, \quad i = 1, ..., m
+f_\lambda(x)=\sum_{i=1}^m \lambda_i f_i(x)
 $$
 
-目标是生成新序列 $x^*$，使其在多个性质上都具有期望值。
+但这种方法主要适合凸 Pareto front。对于非凸 Pareto front，线性标量化可能无法覆盖关键区域。
 
-由于多个目标可能相互冲突，论文不追求一个全局同时最优解，而是追求 Pareto optimality。
-
-### 2. Pareto optimality
-
-论文采用的定义大意如下：
-
-对于两个点 $x_1, x_2$，如果：
+MGD 的做法是，在当前点 $x$ 处寻找一个方向 $g$，使得所有目标都尽可能下降。论文写作：
 
 $$
-f_i(x_2) \leq f_i(x_1), \forall i \in [m]
+g (x) \propto \underset {g \in \mathbb {R} ^ {d}} {\operatorname{argmax}} \left\{\min _ {i \in [ m ]} \langle g, \nabla_ {x} f _ {i} (x) \rangle \text { subject to } \| g \| _ {2} \leq 1 \right\}
 $$
 
-则称 $x_2$ 支配 $x_1$。
+该方向试图最大化最慢目标的下降率。如果找不到能同时改善所有目标的方向，则过程会终止于局部 Pareto 点附近。
 
-如果一个点不被任何其他点支配，则称为全局 Pareto 最优点。所有 Pareto 最优点的函数值集合称为 Pareto front。
+### Compositional EBM
 
-### 3. 线性标量化 baseline
-
-一种简单多目标优化方式是 linear scalarization：
-
-$$
-f_\lambda(x) = \sum_{i=1}^{m} \lambda_i f_i(x)
-$$
-
-其中 $\lambda$ 是概率单纯形上的偏好向量：
-
-$$
-\sum_i \lambda_i = 1, \lambda_i \geq 0
-$$
-
-但线性标量化更适用于凸 Pareto front。对于非凸 Pareto front，它可能无法覆盖全部 Pareto 最优区域。
-
-### 4. Multiple Gradient Descent
-
-Multiple Gradient Descent 的思想是每一步选择一个更新方向 $g(x)$，使所有目标尽可能同时下降。
-
-更新形式为：
-
-$$
-x_k \leftarrow x_{k-1} - \eta g(x)
-$$
-
-其中 $g(x)$ 通过以下优化问题得到：
-
-$$
-g(x) \propto \arg\max_{g \in \mathbb{R}^d}
-\left\{
-\min_{i \in [m]} \langle g, \nabla_x f_i(x) \rangle
-\quad \text{subject to } \|g\|_2 \leq 1
-\right\}
-$$
-
-这个方向试图最大化最慢下降目标的下降速率。若不同目标的梯度冲突严重，可能得到 $g(x)=0$，过程在局部 Pareto 点终止。
-
-根据 Désidéri 的结果，该方向可由以下加权梯度组合得到：
-
-$$
-g(x) \approx \sum_{i=1}^{m} \lambda_i^* \nabla_x f_i(x)
-$$
-
-其中 $\lambda_i^*$ 由一个凸优化问题确定：
-
-$$
-\min_{\lambda_i}
-\left\|
-\sum_{i=1}^{m} \lambda_i \nabla_x f_i(x)
-\right\|^2
-$$
-
-约束为：
-
-$$
-\sum_{i=1}^{m} \lambda_i = 1,\quad \lambda_i \geq 0
-$$
-
-当 $m=2$ 时有闭式解；当 $m>2$ 时可用快速算法求解。
-
-### 5. Compositional Energy-Based Model
-
-Energy-Based Model 学习一个能量函数：
+EBM 学习一个 energy function：
 
 $$
 E_\theta(x)
 $$
 
-并通过 Boltzmann 分布表示数据概率：
+并用未归一化 Boltzmann distribution 表示数据分布：
 
 $$
 p_\theta(x) \propto e^{-E_\theta(x)}
 $$
 
-通常使用 contrastive divergence 训练。
-
-采样时可使用 Langevin Dynamics：
+采样通常使用 Langevin Dynamics：
 
 $$
-x = x_{k-1} - \frac{\eta}{2}\nabla_x E_\theta(x_{k-1}) + \omega_k
+x = x ^ {k - 1} - \frac {\eta}{2} \nabla_ {x} E _ {\theta} (x ^ {k - 1}) + \omega^ {k}
 $$
 
-其中：
+其中 $\omega \sim \mathcal{N}(0,\sigma^2)$。
+
+对于多个属性，**cEBM** 使用 product of experts：
 
 $$
-\omega \sim \mathcal{N}(0, \sigma^2)
+p (x \mid f _ {1} \wedge f _ {2} \wedge \dots \wedge f _ {m}) = \prod_ {i} p (x \mid f _ {i}) \propto e ^ {- \sum_ {i} E (x \mid f _ {i})}
 $$
 
-compositional EBM 将多个性质对应的 EBM 组合起来，例如合取形式：
+对应采样为：
 
 $$
-p(x|f_1 \wedge f_2 \wedge \cdots \wedge f_m)
-= \prod_i p(x|f_i)
-\propto e^{-\sum_i E(x|f_i)}
+x = x ^ {k - 1} - \frac {\eta}{2} \nabla_ {x} \sum_ {i} E _ {\theta} (x ^ {k - 1} | f _ {i}) + \omega^ {k}
 $$
 
-其采样为：
+### pcEBM
+
+本文提出的 **pcEBM** 在采样中使用 MGD 方向：
 
 $$
-x = x_{k-1}
-- \frac{\eta}{2}
-\nabla_x \sum_i E_\theta(x_{k-1}|f_i)
-+ \omega_k
+x ^ {k} \leftarrow x ^ {k - 1} - \eta \underset {g \in \mathbb {R} ^ {d}} {\operatorname{argmax}} \{\min _ {i \in [ m ]} \langle g, \nabla_ {x} f _ {i} (x ^ {k - 1}) \rangle \text { subject to } \| g \| _ {2} \leq 1 \} + \sqrt {2} \alpha \omega
 $$
 
-### 6. pcEBM
+其中 $\alpha$ 是正数，外层采样类似 Langevin diffusion，内层优化问题与 MGD 相同。
 
-论文提出的 **pcEBM** 将 MGD 的方向选择加入 compositional EBM 采样：
+作者给出的直观解释是：
 
-$$
-x_k \leftarrow x_{k-1}
-- \eta
-\arg\max_{g \in \mathbb{R}^d}
-\left\{
-\min_{i \in [m]} \langle g, \nabla_x f_i(x_{k-1}) \rangle
-\quad \text{subject to } \|g\|_2 \leq 1
-\right\}
-+ \sqrt{2\alpha}\omega
-$$
-
-其中：
-
-- 内部优化问题与 MGD 相同；
-- 外层采样类似 Langevin diffusion；
-- $\alpha$ 是正数；
-- $\omega$ 是噪声项。
-
-论文认为：
-
-- 当样本远离 Pareto front 且梯度明显时，pcEBM 会把样本推向 Pareto front；
-- 当样本接近 Pareto front 且梯度接近消失时，噪声主导，使样本进行类似 Brownian motion 的探索；
-- 噪声帮助 pcEBM 比纯 MGD 更好覆盖 Pareto front；
-- 动态 Pareto 方向使 pcEBM 比 cEBM 更有效地优化多个性质。
+- 当样本远离 Pareto front，且各目标梯度范数较大时，MGD 方向会推动样本靠近 Pareto front；
+- 当样本接近 Pareto front，梯度近乎消失时，噪声项会主导，使样本进行 Brownian motion，从而探索 front 附近的不同区域；
+- 相比纯 MGD，噪声有助于覆盖更广的 Pareto front；
+- 相比 cEBM，自适应 Pareto 方向使优化更有效。
 
 ## 算法流程
 
-根据论文内容，pcEBM 的流程可整理如下。
+根据正文，pcEBM 的采样流程可以整理为：
 
-### 输入
+1. 准备多个单属性 EBM  
+   分别针对 **Ab-like**、**Aff**、**BV score** 等性质训练 EBM。
 
-- 初始序列 $x_0$，可以是：
-  - 随机噪声初始化；
-  - 已有抗体 seed sequence。
-- 多个属性 EBM：
-  - $E_1(x)$
-  - $E_2(x)$
-  - ...
-  - $E_m(x)$
-- 步长 $\eta$
-- 采样步数 $k$
-- 噪声强度参数 $\alpha$
+2. 初始化序列  
+   可以从随机噪声开始生成新序列，也可以从已有抗体序列 seed 出发进行性质改造。
 
-### 每一步迭代
+3. 计算多个目标梯度  
+   对当前序列 $x^{k-1}$，分别计算每个属性 energy 或目标函数的梯度：
 
-对于第 $t$ 步：
+   $$
+   \nabla_x f_i(x^{k-1})
+   $$
 
-1. 计算当前序列 $x_{t-1}$ 在各属性 EBM 上的梯度：
-   
-$$
-\nabla_x E_i(x_{t-1})
-$$
+4. 求解 MGD 方向  
+   在单位范数约束下寻找一个方向 $g$，使所有目标中最慢下降的目标也能尽可能改善。
 
-2. 求解 MGD 权重：
-   
-$$
-\lambda^* =
-   \arg\min_{\lambda}
-   \left\|
-   \sum_i \lambda_i \nabla_x E_i(x_{t-1})
-   \right\|^2
-$$
+5. 更新序列表示  
+   按照 pcEBM 更新式加入 Pareto 改进方向和噪声项：
 
-   约束：
-   
-$$
-\sum_i \lambda_i = 1,\quad \lambda_i \geq 0
-$$
+   $$
+   x^k \leftarrow x^{k-1} - \eta g + \sqrt{2}\alpha\omega
+   $$
 
-3. 得到 Pareto 改进方向：
-   
-$$
-g(x_{t-1}) = \sum_i \lambda_i^* \nabla_x E_i(x_{t-1})
-$$
+6. 重复采样  
+   迭代 $k$ 步，得到候选序列集合。
 
-4. 加入噪声并更新序列：
-   
-$$
-x_t = x_{t-1} - \eta g(x_{t-1}) + \sqrt{2\alpha}\omega
-$$
+7. 评估 Pareto front 与性质改善  
+   使用 **Hyper-Volume (HV)**、edit distance、BV score surrogate oracle 等指标评估生成结果。
 
-5. 重复直到达到采样步数或收敛。
+![[raw/zotero/images/多目标分子优化/用于蛋白质序列采样与优化的帕累托最优组合能量模型 - tagasovskaParetooptimalCompositionalEnergybased/mineru-figure-02.jpg]]
 
-### 输出
-
-- 一组候选抗体序列；
-- 这些序列在多个属性能量空间中应接近或覆盖 Pareto front。
+该图展示了 **pcEBM** 与 **cEBM** 在相同步长 $\eta=0.01$ 和相同起始序列下，各属性 energy score 随采样步数变化的轨迹。论文据此认为 pcEBM 收敛更快，这部分支持了 pcEBM 相比 cEBM 的优化优势。
 
 ## 实验设置
 
-### 任务
+论文比较了 **pcEBM** 与三个 baseline：
 
-论文在真实抗体设计任务上评估方法，目标是生成或优化符合多个性质的抗体序列。
+1. **MGD**  
+   使用 multiple gradient descent，不添加噪声。
 
-考虑的主要性质包括：
+2. **cEBM**  
+   使用 Langevin dynamics，对所有属性使用均匀权重。
 
-1. **Ab-like**
-   - 与已知人源抗体相似。
-   - 数据来自 public database of observed antibodies。
-   - 文中引用为 Observed Antibody Space。
+3. **ls-cEBM**  
+   linearly scaled cEBM，区别在于引入 domain-informed weights。
 
-2. **Aff**
-   - binding affinity，即与目标抗原的结合亲和力。
+4. **pcEBM**  
+   每个序列、每一步根据当前梯度自适应学习/求解属性权重或 Pareto 改进方向。
 
-3. **BV score**
-   - nonspecificity 的实验度量。
-   - 来源为对 baculovirus particles 非特异性结合的 ELISA。
-   - 论文中较高的 BV score 在部分实验图中表示更好；但在 EBM 能量指标中，能量越低越好。
+### 任务与性质
 
-### 数据来源
+实验目标是生成合理抗体序列，并同时满足三个性质：
 
-论文称使用 public and proprietary sources 训练三个独立 EBM，每个 EBM 对应一个目标性质。
+- **Ab-like**：与公共数据库中已知人类抗体相似；
+- **Aff**：对目标抗原的 binding affinity；
+- **BV score**：nonspecificity 的实验度量，论文中较高 BV score 更好。
 
-具体 proprietary 数据集细节未在摘取文本中给出，需：
+训练数据来自公共和 proprietary sources。由于 proprietary 数据未公开具体内容，具体数据规模、划分方式和部分实验细节需要待补充原文/PDF 后确认。
 
-- 待补充原文/PDF 后确认。
+### 模型结构
 
-### 模型架构
+论文称所有属性模型均使用 sequence-based convolution networks，附录中进一步说明：
 
-所有属性模型和 baseline 使用相同的神经网络架构：
-
-- sequence-based convolution networks；
-- 每条蛋白链一个模型；
-- 三层 Conv1D；
-- kernel size = 9；
-- padding = 1；
-- ReLU 非线性；
-- penultimate layer size = 256。
-
-训练细节：
-
+- 每个性质和 baseline 使用相同的神经网络架构；
+- 每条 protein chain 使用一个模型；
+- 模型包含三个 Conv1D layers；
+- kernel size 为 9；
+- padding 为 1；
+- 使用 ReLU nonlinearities；
+- penultimate layer size 为 256；
 - 所有 EBM 使用 contrastive training；
 - 优化器为 Adam；
 - 使用 early stopping criterion。
 
-具体学习率、batch size、训练轮数等信息在摘取文本中未给出：
+### 超参数
 
-- 待补充原文/PDF 后确认。
+附录给出的随机搜索超参数网格包括：
 
-### 对比方法
-
-论文比较了 **pcEBM** 与三个 baseline：
-
-1. **MGD**
-   - Multiple Gradient Descent
-   - 不加入噪声。
-
-2. **cEBM**
-   - compositional EBM
-   - 使用 Langevin Dynamics
-   - 对所有属性使用均匀权重。
-
-3. **ls-cEBM**
-   - linearly scaled cEBM
-   - 与 cEBM 类似，但使用 domain-informed weights。
-
-4. **pcEBM**
-   - 每个序列、每一步动态学习/计算各属性最优权重；
-   - 使用 Pareto 方向和噪声采样。
-
-### 超参数搜索
-
-论文附录给出的多属性采样 baseline 超参数网格：
-
-- step size：
-  
-$$
-\eta \in \{1e^{-4}, 1e^{-2}, 1, 10, 40\}
-$$
-
-- number of steps：
-  
-$$
-k \in \{100, 200, 300, 400\}
-$$
-
-- noise type：
-  
-$$
-\omega \in \{\mathcal{N}, U\}
-$$
-
-即噪声类型包括正态分布和均匀分布。
+- step size：$\eta \in \{1e^{-4}, 1e^{-2}, 1, 10, 40\}$；
+- number of steps：$k \in \{100, 200, 300, 400\}$；
+- noise type：$\omega \in \{\mathcal{N}, \mathcal{U}\}$。
 
 ### 评价指标
 
-#### 1. Hypervolume, HV
+论文主要使用两个指标。
 
-论文采用 Hypervolume 指标评价多目标优化解集质量。
+第一是 **Hyper-Volume (HV)**，用于衡量多目标解集质量。实验中以各属性 EBM 的 energy score 作为目标，目标是最小化 energy score。HV 的 reference point 设为：
 
-在实验中：
-
-- 每个属性的 EBM energy score 被视为目标函数；
-- 能量越低越好；
-- reference point 设为：
-  
 $$
-r = (1.0, 1.0, 1.0)
+r=(1.0,1.0,1.0)
 $$
 
-- 使用 PyMoo 实现计算 HV。
+HV 使用 **PyMoo** 实现。
 
-HV 越大表示 Pareto 解集覆盖的目标空间越大，整体多目标优化效果越好。
-
-#### 2. Edit distance, edist
-
-论文使用 edit distance 衡量生成序列与训练集中具有相应性质的真实序列之间的相似性。
-
-具体采用：
-
-- Levenshtein distance；
-- 考虑 insertion、deletion、substitution；
-- 使用 edist / Edlib 实现。
-
-edist 越小，说明生成序列与真实数据中具有该性质的序列越相似。
-
-### 研究问题
-
-论文实验试图回答四个问题：
-
-- **Q1**：能否使用 EBMs 生成有效/合理、同时满足多属性的抗体序列？
-- **Q2**：使用 Langevin Dynamics 采样是否能提出更多 Pareto optimal 序列？
-- **Q3**：pcEBM 是否优于 cEBM？
-- **Q4**：从 seed sequence 出发，能否使用 (p)cEBM 改善某个目标性质？
+第二是 edit distance，用于衡量生成序列与训练集中具有某属性的序列之间的最小编辑距离。论文使用 Levenshtein distance，考虑 insertion、deletion 和 substitution。正文称使用 python library edist，并引用了 Edlib；具体库名是否为 edist 或 Edlib 的 Python 接口，待补充原文/PDF 后确认。
 
 ## 主要结果
 
-### 1. pcEBM 在小步长下 HV 表现较好
+论文围绕四个问题展开实验：
 
-论文 Table 1 比较不同方法在不同 step size 下的 Hypervolume。
+- Q1：EBM 能否生成有效/合理且满足多属性的抗体序列？
+- Q2：Langevin Dynamics 是否能提出更多 Pareto optimal sequences？
+- Q3：pcEBM 是否优于 cEBM？
+- Q4：从 seed sequence 出发，能否用 compositional EBM 改善某个目标性质？
 
-在 $\eta = 0.01$ 时：
+### 多目标生成能力
+
+Table 1 报告了不同 step size 下，不同方法在多个属性组合上的 **Hyper-Volume (HV)**。总体观察是：
+
+- 在较小步长 $\eta=0.01$ 时，**pcEBM** 在三属性 HV 和多个二属性组合 HV 上表现最好或接近最好；
+- **MGD** 通常是较强 baseline；
+- **cEBM** 和 **ls-cEBM** 在某些设置下可以表现不错，但对步长较敏感；
+- pcEBM 在不同 $\eta$ 下的方差更小，说明稳定性更好。
+
+正文给出的 Table 1 中，$\eta=0.01$ 时：
 
 | 方法 | HV(Ab-Like, Aff, BV) | HV(Aff, BV) | HV(Ab-Like, BV) | HV(Ab-Like, Aff) |
 |---|---:|---:|---:|---:|
@@ -493,231 +304,162 @@ edist 越小，说明生成序列与真实数据中具有该性质的序列越�
 | cEBM | 0.00 | 0.25 | 0.24 | 0.25 |
 | pcEBM | 0.049 | 0.30 | 0.29 | 0.30 |
 
-可以看到，在较小步长下，pcEBM 在多数组合上取得最高 HV。
+这表明在较保守步长下，pcEBM 对多属性 Pareto front 的覆盖更好。
 
-论文认为这说明 pcEBM 更好地覆盖了多属性 Pareto front。
+### 与真实属性数据的相似性
 
-### 2. pcEBM 在 edit distance 上整体更接近多属性真实数据
+Table 2 使用 edit distance 衡量生成序列与训练集中对应属性序列的相似度，越小越好。论文结论是：
 
-Table 2 显示，在多属性生成中，pcEBM 的平均 edit distance 较低。
+- 单属性 EBM 生成的序列更接近其自身属性数据，但对其他属性不一定好；
+- 多属性 EBM 生成序列相比单属性 EBM，在多个属性上的距离更均衡；
+- 在 $\eta=40$ 和 $\eta=0.01$ 的多目标设置中，pcEBM 的平均 edit distance 较小；
+- MGD 也表现较强，是接近 pcEBM 的 baseline。
 
-例如在 $\eta = 40$ 时：
+正文中 $\eta=0.01$ 时的平均 edit distance：
 
-| 方法 | edist to Ab-like | edist to BV | edist to Aff | average edist |
-|---|---:|---:|---:|---:|
-| MGD | 83.51 ± 16.1 | 71.49 ± 15.7 | 85.84 ± 16.3 | 80.28 |
-| cEBM | 92.96 ± 19.03 | 86.86 ± 17.99 | 97.97 ± 17.28 | 92.60 |
-| ls-cEBM | 92.4 ± 19.3 | 87.14 ± 17.94 | 97.93 ± 17.25 | 92.49 |
-| pcEBM | 82.24 ± 16.16 | 71.47 ± 15.82 | 85.76 ± 16.34 | 79.82 |
-
-在 $\eta = 0.01$ 时：
-
-| 方法 | average edist |
+| 方法 | average edit distance |
 |---|---:|
 | MGD | 89.46 |
 | cEBM | 221.23 |
 | ls-cEBM | 218.51 |
 | pcEBM | 86.02 |
 
-这表明在该设置下，pcEBM 相比 cEBM / ls-cEBM 明显更接近具有目标性质的真实序列。
+这说明在小步长下，pcEBM 生成的序列更接近真实属性数据，而 cEBM/ls-cEBM 在该设置下明显偏离。
 
-### 3. pcEBM 比 cEBM 收敛更快
+### pcEBM 的收敛速度优势
 
-论文 Figure 3 比较了 pcEBM 和 cEBM 在相同初始序列、相同步长 $\eta=0.01$ 下，每一步各属性能量的变化。
+论文通过 energy score 轨迹比较 pcEBM 和 cEBM。结果显示，在相同起始序列和相同步长 $\eta=0.01$ 下，pcEBM 的能量下降更快。作者将这解释为 pcEBM 相比 cEBM 的优势之一：pcEBM 每一步选择的是更适合多目标同时下降的局部方向，而不是简单合并 energy 梯度。
 
-结果显示：
+### Pareto front 覆盖
 
-- pcEBM 的 energy score 下降更快；
-- 说明其动态 Pareto 方向可能比 cEBM 的固定均匀组合更有效。
+正文中还提到 Figure 2 展示了不同 baseline 生成候选序列形成的 Pareto front，以及估计 hypervolume。该图在“可用图表”中未提供对应图片，因此此处不嵌入；具体图像细节待补充原文/PDF 后确认。
 
-### 4. pcEBM 覆盖更宽的 Pareto front
+作者的结论是：
 
-论文 Figure 2 展示了在 Aff 和 BV 两个能量目标空间中的 Pareto front。
+- pcEBM front 比基于 MGD 的方法更宽，说明加入 Langevin Dynamics 噪声有助于覆盖更广的 Pareto front；
+- pcEBM 和 MGD 的 front 更接近原点，说明它们在 energy 最小化意义上优于直接 Langevin Dynamics；
+- 这支持 Q2 和 Q3：Langevin noise 有助于探索，MGD 方向有助于多属性优化，而 pcEBM 结合二者。
 
-作者观察到：
+### 从 seed 改善 BV score
 
-- pcEBM 得到的 Pareto front 比 MGD 更宽；
-- 说明加入 Langevin Dynamics 的噪声有助于探索 Pareto front；
-- pcEBM 和 MGD 的前沿更接近原点，说明它们在降低两个目标能量上优于直接 LD 式的 cEBM。
+论文还测试了从已有抗体序列出发，改善 nonspecificity 相关 BV score 的能力。实验流程是：
 
-这支持了：
+1. 筛选出 BV score 较差的已有序列，作为 seeds；
+2. 使用 compositional EBM 变体生成改造后的设计；
+3. 使用外部 **SeqCNN classifier** 作为 surrogate pseudo-oracle 评估新设计的 predicted BV score。
 
-- Langevin Dynamics 有助于 Pareto front 覆盖；
-- Multiple Gradient Descent 有助于多目标同步优化；
-- pcEBM 综合了二者优势。
+![[raw/zotero/images/多目标分子优化/用于蛋白质序列采样与优化的帕累托最优组合能量模型 - tagasovskaParetooptimalCompositionalEnergybased/mineru-figure-03.jpg]]
 
-### 5. 从 seed sequence 出发可改善 nonspecificity
+该图是 Figure 4 的左侧图，对应 **cEBM** 对低 BV score seed 的改造轨迹。点的颜色表示 BV score，蓝色更好，橙色点表示初始 seed；图中可以看到生成序列向高 BV score 区域移动。
 
-针对 Q4，论文使用已有抗体序列作为 seed，选择 BV score 较差的序列作为优化起点。
+![[raw/zotero/images/多目标分子优化/用于蛋白质序列采样与优化的帕累托最优组合能量模型 - tagasovskaParetooptimalCompositionalEnergybased/mineru-figure-04.jpg]]
 
-然后使用多种方法生成候选设计，并用外部 SeqCNN classifier 作为 nonspecificity pseudo-oracle 评估。
+该图是 Figure 4 的右侧图，对应 **pcEBM** 对同类 seed 的改造轨迹。论文用 tSNE 投影 nonspecificity oracle 最后一层特征，显示 pcEBM 也能把低分 seed 推向 BV score 更好的流形区域。
 
-结果显示：
+![[raw/zotero/images/多目标分子优化/用于蛋白质序列采样与优化的帕累托最优组合能量模型 - tagasovskaParetooptimalCompositionalEnergybased/mineru-figure-05.jpg]]
 
-- 多目标方法可将较差 BV score 从约 0.27 提升到 0.9 以上；
-- MGD 和 pcEBM 的平均分略低于 cEBM，但所有方法都得到较高 BV score；
-- tSNE 可视化显示 cEBM 和 pcEBM 都能将 seed sequence 移向 BV score 更好的序列流形区域。
+该图是 Figure 5 的左侧小提琴图，比较 seeds 与各 baseline 生成设计的 predicted BV score 分布。论文指出，多目标方法能把最差 BV score 从约 0.27 提升到 0.9 以上，说明这些方法可用于已有抗体的性质改造。
 
-需要注意的是，具体 wet-lab 实验验证未在摘取文本中出现：
+![[raw/zotero/images/多目标分子优化/用于蛋白质序列采样与优化的帕累托最优组合能量模型 - tagasovskaParetooptimalCompositionalEnergybased/mineru-figure-06.jpg]]
 
-- 待补充原文/PDF 后确认。
+该图是 Figure 5 的右侧图，展示 pcEBM 在不同步数下 proposal trajectories 的 energy score。较低 energy score 更好，用于观察 pcEBM 随采样步数推进时各目标的优化趋势。
 
 ## 创新点
 
-1. **提出 pcEBM**
-   - 将 Pareto optimality 引入 compositional EBM 采样。
-   - 目标不是简单生成满足单一属性的序列，而是生成一组多目标权衡候选。
+1. **将 Pareto optimality 引入 compositional EBM 采样**  
+   本文不是简单把多个 EBM 的 energy 相加，而是在采样过程中显式考虑多目标 Pareto 改进方向。
 
-2. **动态计算多目标组合权重**
-   - 与 cEBM 的固定均匀加权不同，pcEBM 每一步根据当前样本的多个目标梯度动态确定权重。
-   - 这使得采样方向更符合局部 Pareto 改进。
+2. **用 MGD 替代固定权重标量化方向**  
+   pcEBM 每一步根据当前样本的多个属性梯度求解局部 Pareto 改进方向，避免固定权重在冲突目标或非凸 Pareto front 上的局限。
 
-3. **结合 MGD 与 Langevin Dynamics**
-   - MGD 提供多目标共同下降方向；
-   - Langevin noise 提供探索能力；
-   - 二者结合使 pcEBM 能更好覆盖非凸 Pareto front。
+3. **结合 MGD 的优化性与 Langevin Dynamics 的探索性**  
+   MGD 有助于同时降低多个目标，Langevin noise 有助于在 Pareto front 附近探索更多样的候选。
 
-4. **面向真实抗体设计任务验证**
-   - 论文不是只做 toy problem，而是在抗体序列生成与优化上评估。
-   - 涉及 Ab-like、Aff、BV score 等实际相关性质。
+4. **面向真实抗体设计任务验证**  
+   实验不是纯 toy problem，而是在 Ab-like、Aff、BV score 等真实抗体设计相关性质上进行评估。
 
-5. **展示非凸 Pareto front 学习能力**
-   - 论文强调 pcEBM 能学习 non-convex Pareto fronts，而线性标量化方法在非凸情况下可能受限。
+5. **支持从已有 seed 进行性质改造**  
+   除了从噪声生成，论文还展示了从 BV score 较差的已有抗体出发进行优化的场景，更接近实际抗体工程流程。
 
 ## 局限性
 
-1. **评价主要基于模型能量和代理指标**
-   - HV 是基于属性 EBM 的 energy score 计算。
-   - 作者自己指出，这种评价可能有偏，因为 cEBM / ls-cEBM 使用同一类模型进行采样和评估。
-   - 更公平的比较应使用外部预测器、surrogate oracle 或 wet-lab 结果。
+1. **数据集细节不完整**  
+   论文提到使用 public 和 proprietary sources，但 proprietary 数据的具体来源、规模、划分和可复现性信息在当前解析文本中不足，需要待补充原文/PDF 后确认。
 
-2. **缺少湿实验验证**
-   - 摘取文本中未看到真实实验合成或生物物理实验验证生成抗体性质。
-   - 待补充原文/PDF 后确认。
+2. **实验主要集中在抗体序列**  
+   作者在 conclusion 中提到未来可扩展到 graph structures suitable for molecules，说明本文尚未验证分子图等其他数据类型。
 
-3. **数据细节不足**
-   - 部分数据来自 proprietary sources，具体规模、分布、抗原类型、训练/测试划分等信息未在摘取文本中充分给出。
-   - 待补充原文/PDF 后确认。
+3. **属性评估依赖 surrogate model**  
+   BV score 改善实验使用外部 SeqCNN classifier 作为 surrogate pseudo-oracle。生成设计是否能在真实实验中保持同样提升，需要湿实验验证；当前解析文本中未看到真实实验验证结果。
 
-4. **离散序列上的连续梯度采样细节不完全明确**
-   - 抗体序列是离散氨基酸序列，但方法中使用对 $x$ 的梯度更新。
-   - 摘取文本中未充分说明如何在连续表示和离散氨基酸序列之间转换。
-   - 待补充原文/PDF 后确认。
+4. **EBM 训练与离散序列采样细节仍需确认**  
+   论文给出 sequence-based convolution networks 和 Langevin-style sampling，但离散氨基酸序列如何从连续表示映射回字符序列等实现细节在当前摘取文本中不充分，待补充原文/PDF 后确认。
 
-5. **pcEBM 的计算成本可能较高**
-   - 每一步需要计算多个属性梯度并求解 MGD 权重。
-   - 摘取文本中未给出运行时间或复杂度比较。
-   - 待补充原文/PDF 后确认。
+5. **对比方法范围有限**  
+   Baseline 包括 MGD、cEBM、ls-cEBM，但没有与更现代的蛋白质语言模型、扩散式蛋白质生成模型或强化学习式多目标设计方法进行系统比较。是否在完整论文中有更多对比，待补充原文/PDF 后确认。
 
-6. **多目标数量扩展性待进一步验证**
-   - 实验主要围绕三个性质 Ab-like、Aff、BV。
-   - 当目标数量更多、目标冲突更复杂时效果如何，仍需验证。
-
-7. **生成序列的新颖性与可开发性评估有限**
-   - edit distance 衡量相似性，但无法完全评价结构稳定性、表达量、免疫原性、聚集风险等真实 developability 问题。
-   - 待补充原文/PDF 后确认。
+6. **Pareto optimality 是基于模型 energy 的近似**  
+   实验中用各属性 EBM energy 作为目标代理，因此 Pareto front 是模型代理意义上的 front，不必然等价于真实实验性质下的 Pareto front。
 
 ## 相关概念
 
+- [[Pareto 最优]]
+- [[Pareto Front]]
 - [[多目标优化]]
-- [[Pareto optimality]]
-- [[Pareto front]]
-- [[Pareto set]]
-- [[非凸 Pareto front]]
-- [[linear scalarization]]
-- [[Multiple Gradient Descent]]
-- [[MGDA]]
 - [[Energy-Based Model]]
-- [[compositional EBM]]
-- [[Product of Experts]]
-- [[Langevin Dynamics]]
-- [[Markov Chain Monte Carlo]]
-- [[contrastive divergence]]
-- [[Boltzmann distribution]]
 - [[蛋白质序列设计]]
-- [[抗体设计]]
-- [[inverse design]]
-- [[therapeutic antibody]]
-- [[developability]]
-- [[binding affinity]]
-- [[nonspecificity]]
-- [[BV score]]
-- [[Observed Antibody Space]]
-- [[Hypervolume]]
-- [[edit distance]]
-- [[Levenshtein distance]]
-- [[SeqCNN]]
-- [[tSNE]]
-- [[surrogate oracle]]
-
+- [[可控生成]]
+- [[Hypervolume Indicator]]
+- [[抗体可开发性]]
 ## 相关方法
 
-- [[Pareto-compositional energy-based model]]
-- [[pcEBM]]
-- [[compositional EBM]]
-- [[cEBM]]
-- [[linearly scaled cEBM]]
-- [[ls-cEBM]]
+- [[Pareto-compositional Energy-Based Model]]
+- [[Compositional Energy-Based Model]]
 - [[Multiple Gradient Descent]]
-- [[MGD]]
 - [[Langevin Dynamics]]
-- [[linear scalarization]]
-- [[Stein Variational Gradient Descent]]
-- [[Multi-objective Stein Variational Gradient Descent]]
-- [[Energy-Based Model]]
-- [[Generative Adversarial Network]]
-- [[Variational Autoencoder]]
-- [[Diffusion Model]]
-- [[Function-guided protein design]]
-- [[Deep manifold sampling]]
+- [[Contrastive Divergence]]
+- [[Linear Scalarization]]
+## 相关数据集
 
+- 待补充。
+## 相关模型
+
+- [[Sequence CNN|SeqCNN]]
 ## 相关论文
 
-- [[Implicit generation and modeling with energy based models]]  
-  Du and Mordatch, 2019。本文使用的 EBM 背景方法之一。
-
-- [[Compositional visual generation with energy based models]]  
-  Du, Li and Mordatch, 2020。本文 cEBM baseline 和组合式 EBM 思想的重要来源。
-
-- [[Multiple-gradient descent algorithm for multiobjective optimization]]  
-  Désidéri, 2012。本文使用的 MGD / MGDA 多目标下降方向来源。
-
-- [[Multi-task learning as multi-objective optimization]]  
-  Sener and Koltun, 2018。与多目标优化和梯度组合相关。
-
-- [[Profiling Pareto front with multi-objective Stein variational gradient descent]]  
-  Liu, Tong and Liu, 2021。与 Pareto front 建模和多目标 SVGD 相关。
-
-- [[Observed antibody space: A diverse database of cleaned, annotated, and translated unpaired and paired antibody sequences]]  
-  Olsen, Boyles and Deane, 2022。Ab-like 数据来源相关。
-
-- [[A strategy for risk mitigation of antibodies with fast clearance]]  
-  Hötzel et al., 2012。BV score / baculovirus ELISA 相关。
-
-- [[Function-guided protein design by deep manifold sampling]]  
-  Gligorijevic et al., 2021。与功能引导蛋白设计相关。
-
-- [[Expanding functional protein sequence spaces using generative adversarial networks]]  
-  Repecka et al., 2021。蛋白质序列生成相关。
-
-- [[Tartarus: A benchmarking platform for realistic and practical inverse molecular design]]  
-  Nigam et al., 2022。现实分子反向设计评测相关。
+- [[Multiple-gradient descent algorithm for multiobjective optimization]]
+- [[Compositional Visual Generation with Energy Based Models]]
+- [[Implicit Generation and Modeling with Energy Based Models]]
+- [[Profiling Pareto Front with Multi-Objective Stein Variational Gradient Descent]]
+- [[Observed Antibody Space]]
+- [[Tartarus]]
 
 ## 源文件
 
-- citekey: `tagasovskaParetooptimalCompositionalEnergybased`
-- title: **A Pareto-optimal compositional energy-based model for sampling and optimization of protein sequences**
-- authors: Nataša Tagasovska, Nathan C Frey, Andreas Loukas, Isidro Hötzel, Ryan Lewis Kelly, Yan Wu, Arvind Rajpal, Richard Bonneau, Kyunghyun Cho, Stephen Ra, Vladimir Gligorijevic
-- year: 待补充原文/PDF 后确认  
-  - PDF 文本显示 arXiv:2210.10838v1，日期为 19 Oct 2022。
-- venue: 待补充原文/PDF 后确认  
-  - PDF 文本显示 “Preprint. Under review.”
-- DOI: 待补充原文/PDF 后确认
-- collections: 多目标分子优化
+- citekey：tagasovskaParetooptimalCompositionalEnergybased
+- title：A Pareto-optimal compositional energy-based model for sampling and optimization of protein sequences
+- authors：Nataša Tagasovska, Nathan C Frey, Andreas Loukas, Isidro Hötzel, Ryan Lewis Kelly, Yan Wu, Arvind Rajpal, Richard Bonneau, Kyunghyun Cho, Stephen Ra, Vladimir Gligorijevic
+- year：待补充原文/PDF 后确认
+- venue：待补充原文/PDF 后确认
+- DOI：待补充原文/PDF 后确认
+- collections：多目标分子优化
+- 正文来源：MinerU full.md
 
-## 图表摘录
+注意：正文摘取中的作者列表包含 Julien Lafrance-Vanasse，而元数据作者列表中未包含该作者；最终作者信息需待补充原文/PDF 或 Zotero 元数据后确认。
 
-![[raw/zotero/images/多目标分子优化/用于蛋白质序列采样与优化的帕累托最优组合能量模型 - tagasovskaParetooptimalCompositionalEnergybased/page-001.png]]
+## 代码与数据
+
+### 代码
+
+未在当前解析文本中发现明确代码仓库。
+
+### 数据集 / Benchmark
+
+未在当前解析文本中发现明确数据集或 benchmark 链接。
+
+### 其他链接
+
+未在当前解析文本中发现其他外部资源链接。
 
 ## Zotero 原始摘要
 
@@ -733,60 +475,29 @@ Deep generative models have emerged as a popular machine learning-based approach
 
 ## 我的理解
 
-这篇论文的重点不是提出新的抗体属性预测器，而是提出一种多属性生成/优化的采样机制。它把每个属性模型看成一个能量函数，然后在生成时不再简单地把所有能量加起来，而是根据当前序列在多个能量面上的梯度关系，动态选择一个 Pareto 改进方向。
+这篇论文的关键价值在于：它把“多目标优化”真正放进了生成模型的采样步骤，而不是在生成后再筛选，或者简单把多个属性分数加权求和。
 
-我认为 pcEBM 的核心优势在于它处理了两个问题：
+在抗体设计这种任务中，多目标冲突是常态。一个候选分子如果只在 affinity 上很好，但 nonspecificity 或 developability 很差，实际研发价值可能很低。pcEBM 的思路更贴近真实设计流程：它不是强行定义一个唯一最优目标，而是生成一批位于不同 trade-off 位置的候选，让实验人员或下游决策系统选择。
 
-1. **固定加权不可靠**
-   - cEBM 默认所有属性等权，ls-cEBM 使用人为权重。
-   - 但在不同序列位置、不同采样阶段，各目标的重要性和冲突关系可能变化。
-   - pcEBM 的动态权重更适合这种局部变化。
+从方法上看，pcEBM 可以理解为：
 
-2. **纯优化缺少探索**
-   - MGD 可以朝 Pareto 方向优化，但容易得到较窄的解集。
-   - 加入 Langevin noise 后，pcEBM 更像是“沿 Pareto front 附近扩散”，因此能覆盖更宽的候选集合。
+- EBM 提供“属性能量地形”；
+- MGD 提供“多目标同时下降方向”；
+- Langevin noise 提供“front 附近探索能力”。
 
-从分子优化角度看，这篇论文属于 多目标分子优化 中很有代表性的思路：不把多目标问题强行压成单目标，而是承认目标之间存在 trade-off，并显式生成 Pareto front 上的候选。
+因此，它比 cEBM 更有目标协调能力，比纯 MGD 更有多样性和覆盖能力。
 
-不过，这篇论文的实证说服力仍主要来自计算指标，包括 EBM energy、HV、edit distance 和 surrogate classifier。对于抗体设计而言，最终仍需要实验验证，例如真实 binding affinity、non-specific binding、表达量、稳定性、聚集、黏度等。因此 pcEBM 更像是一个有潜力的候选生成器，而不是完整闭环的抗体发现平台。
+不过，这篇工作的可信度很大程度取决于属性 EBM 和 surrogate oracle 的质量。如果这些模型没有很好对应真实实验性质，那么 Pareto front 可能只是模型空间中的 Pareto front。对于实际抗体设计，后续是否能通过实验验证 pcEBM 提出的序列，才是最关键的问题。
 
 ## 后续问题
 
-1. pcEBM 如何处理离散氨基酸序列与连续梯度更新之间的映射？
-   - 是在 one-hot relaxation、embedding space，还是 logits space 中采样？
-   - 待补充原文/PDF 后确认。
-
-2. 生成序列是否经过有效性过滤？
-   - 例如是否保证没有非法氨基酸、长度合理、链配对合理？
-   - 待补充原文/PDF 后确认。
-
-3. 论文中的 proprietary affinity 数据具体来自哪些抗原或抗体项目？
-   - 数据规模是多少？
-   - 是否存在训练/测试泄漏风险？
-   - 待补充原文/PDF 后确认。
-
-4. pcEBM 生成的序列与训练集相似，是否意味着新颖性不足？
-   - edit distance 越小被视为更接近真实属性分布，但过小也可能意味着记忆训练集。
-   - 需要进一步用 novelty / diversity 指标评价。
-
-5. HV 使用 EBM energy 作为目标是否会偏向某些方法？
-   - 作者已指出存在偏差。
-   - 后续应使用独立 oracle 或实验结果验证。
-
-6. pcEBM 在目标数量更多时是否稳定？
-   - 例如同时优化 affinity、specificity、solubility、viscosity、stability、immunogenicity。
-   - MGD 权重求解和目标冲突会变得更复杂。
-
-7. 是否可以把 pcEBM 与 Diffusion Model 结合？
-   - 例如在蛋白质序列 diffusion 或结构 diffusion 中使用 Pareto guidance。
-
-8. 是否可以在训练阶段也加入 Pareto optimality？
-   - 作者在结论中提到未来方向之一是 Pareto-optimal training for EBMs。
-
-9. pcEBM 是否适用于图结构分子？
-   - 作者提到未来可扩展到 graph structures suitable for molecules。
-   - 需要研究如何在图离散空间中做 Pareto compositional sampling。
-
-10. 如果某些属性模型不确定性很高，pcEBM 是否会被错误梯度误导？
-    - 作者提到未来可加入 uncertainty estimates。
-    - 对真实分子优化尤其重要。
+1. pcEBM 如何处理离散氨基酸序列的连续梯度更新？更新后如何投影或解码回合法序列？
+2. proprietary antibody datasets 的规模、性质分布和训练/测试划分是什么？
+3. Affinity 任务中的 antigen of interest 是单一抗原还是多个抗原？
+4. BV score surrogate oracle 与真实实验 BV score 的相关性如何？
+5. pcEBM 生成的序列是否经过湿实验验证？
+6. pcEBM 与基于蛋白质语言模型的 guided generation 方法相比表现如何？
+7. pcEBM 在目标数更多时是否仍然稳定？MGD 内部优化开销如何随目标数增长？
+8. 是否可以把 pcEBM 扩展到结构生成、分子图生成或 diffusion model sampling？
+9. 噪声强度 $\alpha$ 对 Pareto front 覆盖和序列有效性的影响如何？
+10. 该方法是否容易生成过度接近训练集的序列？edit distance 是否足够衡量新颖性？

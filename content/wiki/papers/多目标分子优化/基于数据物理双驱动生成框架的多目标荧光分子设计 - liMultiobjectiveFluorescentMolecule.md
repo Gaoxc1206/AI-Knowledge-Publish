@@ -20,764 +20,501 @@ original_title: "Multi-objective fluorescent molecule design with a data-physics
 ---
 ## 一句话总结
 
-本文提出 **LUMOS (Latent Unified fraMework for fluOrophore deSign)**，一个面向荧光小分子反向设计的“数据-物理双驱动”生成框架，通过共享潜在空间、神经网络预测器、快速 TD-DFT 工作流、潜在扩散模型与 NSGA-III 多目标进化算法，实现可控的 多目标分子优化 和荧光分子生成。
+本文提出 LUMOS（Latent Unified fraMework for fluOrophore deSign），一个结合数据驱动神经网络、快速 TD-DFT 物理计算与潜在空间扩散生成的荧光小分子逆向设计框架，用于在多目标和多约束条件下生成、筛选和优化荧光分子。
 
 ## 研究问题
 
-本文关注的问题是：如何在巨大的化学空间中，高效设计同时满足多个光物理与理化性质目标的荧光小分子。
+荧光小分子在生物成像、化学传感和光电材料中非常重要，但实际设计往往需要同时满足多个目标，例如：
 
-具体目标包括：
+- 指定的吸收峰 $\lambda_{abs}$；
+- 指定的发射峰 $\lambda_{emi}$；
+- 较大的 Stokes shift；
+- 较高的摩尔消光系数 $\log \epsilon$；
+- 较高的光致发光量子产率 PLQY / $\phi$；
+- 生物应用中的 ADMET 或细胞膜通透性约束。
 
-- 定制吸收峰：absorption maximum, λabs
-- 定制发射峰：emission maximum, λemi
-- 提高摩尔消光系数：molar extinction coefficient, log ε
-- 提高光致发光量子产率：photoluminescence quantum yield, PLQY / φ
-- 增大 Stokes shift
-- 在特定应用场景中同时优化 ADMET / 细胞通透性等性质
-- 保持或探索新的荧光团 scaffold / fragment
+传统方法通常依赖已有骨架的局部修饰和大量试错，难以高效探索新骨架。已有 AI 分子生成方法也面临两个核心瓶颈：
 
-核心难点在于：
+1. 在离散化学空间中进行 generate-score-screen 搜索效率低，尤其在多目标、硬约束和骨架新颖性要求同时存在时更加困难。
+2. 纯数据驱动预测器对分布外分子泛化不可靠，而量子化学计算虽然更具物理可解释性和可迁移性，但计算成本过高，难以直接用于大规模筛选。
 
-1. 荧光分子设计是典型的 多目标优化 问题，目标之间可能冲突。
-2. 化学空间离散且巨大，传统 generate-score-screen 工作流搜索效率低。
-3. 纯 机器学习 预测器在 分布外泛化 上不稳定。
-4. 量子化学计算如 TD-DFT 具有物理可解释性和迁移性，但计算成本高。
-5. 荧光分子的实际设计还涉及溶剂、环境、结构 scaffold、fragment 局部改造等复杂约束。
+本文要解决的问题是：如何构建一个能够在连续潜在空间中进行目标条件生成和多目标优化，同时结合神经网络速度与 TD-DFT 物理泛化能力的荧光分子设计框架。
 
 ## 背景与动机
 
-荧光小分子广泛用于：
+荧光小分子的成功设计需要在多个相互耦合甚至冲突的性质之间做权衡。例如，长波长发射有利于组织穿透，大 Stokes shift 有助于减少自猝灭，高亮度则依赖较大的 $\log \epsilon$ 和 PLQY。传统荧光团开发通常围绕 rhodamines、BODIPYs 等已知骨架进行局部化学修饰，优点是经验可控，但缺点是搜索空间狭窄、依赖专家经验、实验迭代成本高。
 
-- 生物成像
-- 化学传感
-- 光电子学
-- 荧光探针设计
-- 细胞微环境检测
+近年 AI 分子设计方法被用于荧光分子发现，例如 RNN + MCTS、GCN 分子编辑、强化学习结合性质预测器等。但这些方法大多仍然在离散分子空间中进行串行生成、打分、筛选，难以处理真实设计场景中的多目标和多约束问题。同时，荧光性质具有强烈的电子结构依赖，神经网络模型如果没有足够数据或物理约束，容易在新骨架上失效；而 TD-DFT 等量子化学方法虽更具物理基础，却存在计算慢和系统偏差的问题。
 
-传统荧光分子发现通常依赖已知 scaffold，例如 rhodamines、BODIPYs，并通过局部化学修饰、合成、表征和筛选进行优化。这种方式有两个主要局限：
-
-1. 强依赖专家经验和劳动密集型实验循环。
-2. 主要围绕已有结构微调，限制了新 chemotype / scaffold 的发现。
-
-近年来，AI 分子设计方法被用于荧光分子设计。例如：
-
-- Sumita et al. 使用 RNN 生成器结合 Monte Carlo tree search。
-- Han et al. 使用 GCN 预测逐步分子编辑。
-- Zhu et al. 使用 强化学习 和机器学习性质预测器进行荧光团设计与高通量筛选。
-
-但已有方法仍面临两个瓶颈：
-
-1. **离散化学空间探索效率低**  
-   许多方法直接在离散 SMILES 或分子图空间中进行 generate-score-screen，当目标、硬约束和 scaffold novelty 同时存在时效率不足。
-
-2. **数据驱动预测与物理评价之间不充分对齐**  
-   神经网络预测器在 OOD 分子上可能外推失败；而 TD-DFT 等物理方法更可迁移、更可解释，但计算昂贵，不适合直接高通量搜索。
-
-因此，作者提出需要一个能够进行 objective-conditioned generation，同时结合 scalable physics-anchored evaluation 的荧光分子反向设计框架。
+本文的动机是构建一个“数据-物理双驱动”的统一框架：用潜在空间提升搜索效率，用神经网络提供快速预测和梯度引导，用加速 TD-DFT 与神经网络校正提供更可靠的高精度后筛选。
 
 ## 核心思想
 
-LUMOS 的核心思想是把荧光分子设计拆成三个相互连接的模块：
+LUMOS 的核心思想可以概括为三层：
 
-1. **表示学习模块**  
-   用 graph-to-sequence autoencoder 把离散分子图映射到连续、紧凑、语义化的 latent chemical space，使生成和优化可以在连续空间中进行。
+1. **统一潜在表示**  
+   将离散分子图映射到连续、紧凑且具有化学语义的潜在空间。生成器和预测器共享这一潜在表示，使分子生成、性质预测和优化可以在同一空间中耦合。
 
-2. **性质预测模块**  
-   构建多层次预测器：
-   - **AGP (Attentive Graph Predictor)**：快速、可解释的图神经网络预测器。
-   - **LSP (Latent Surrogate Predictor)**：从潜在向量到性质的可微预测器，用于梯度引导生成。
-   - **TD-DFT/NN hybrid predictor**：结合快速 TD-DFT 计算与神经网络偏差校正，提高 OOD 泛化和物理一致性。
+2. **多层次性质预测**  
+   构建一组互补预测器：
+   - AGP（attentive graph predictor）：快速、可解释的图神经网络预测器；
+   - LSP（latent surrogate predictor）：从潜在表示到性质的可微预测器，用于梯度引导生成；
+   - TD-DFT/NN hybrid predictor：通过快速 TD-DFT 计算加神经网络偏差校正，提高分布外泛化与物理可靠性。
 
-3. **生成与优化模块**  
-   在 latent space 上训练 latent diffusion model / Diffusion Transformer，支持：
-   - prompt-conditioned de novo generation
-   - gradient-guided generation
-   - 与 NSGA-III 结合的多目标分子优化
-   - scaffold-level 全局优化
-   - fragment-level 局部优化
-   - 带 ADMET 约束的实际荧光探针优化
-
-整体上，LUMOS 试图把 生成模型、分子表示学习、量子化学计算 和 多目标进化算法 整合到一个荧光分子设计框架中。
+3. **潜在扩散生成与进化优化结合**  
+   在潜在空间中训练 diffusion transformer，并支持两种生成模式：
+   - prompt-conditioned generation：直接输入目标性质和溶剂介电常数进行条件生成；
+   - gradient-guided generation：利用 LSP 梯度在采样过程中引导潜在向量向目标性质区域移动。  
+   进一步将扩散噪声-去噪过程作为变异算子，结合 NSGA-III 进行多目标分子优化。
 
 ## 方法框架
 
-### 1. Representation learning：连续潜在化学空间
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-01.jpg]]
 
-作者采用 graph-to-sequence autoencoder：
+图 1 展示了 LUMOS 的整体框架，由表示学习、性质预测和分子生成三部分组成。表示学习模块将荧光分子映射到连续潜在空间；预测模块结合 NN、TD-DFT 和 TD-DFT/NN hybrid predictor；生成模块在潜在空间中进行 de novo generation 和 molecular optimization。
 
-- 输入：分子图，由 RDKit 解析。
-- 编码器：MolCT Graph Encoder / graph transformer。
-- 为处理不同大小分子，引入 virtual atoms 作为 padding nodes。
-- virtual atoms 的压缩 embedding 作为固定维度 latent vector。
-- 解码器：transformer SMILES decoder，将 latent representation 还原为 SMILES。
-- 训练目标：maximum likelihood estimation，latent vector 加 L2 regularization，避免模型简单记忆训练样本。
+LUMOS 的方法框架包括以下模块：
 
-该 latent space 被用于：
+### 1. 表示学习模块
 
-- 分子重构
-- 性质预测
-- diffusion generation
-- molecular optimization
+作者采用 graph-to-sequence autoencoder。分子首先由 RDKit 解析为分子图，再由 MolCT graph encoder 编码。为了将不同大小的分子统一到固定维度表示，模型引入 virtual atoms 作为 padding nodes，并将这些虚拟原子的压缩嵌入作为分子 latent vectors。随后，latent vectors 作为 transformer SMILES decoder 的 prefix tokens，用于重构 SMILES。
 
-表示学习结果：
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-02.jpg]]
 
-- FluoDB test set 重构准确率：94.0%
-- 外部 TADF dataset 重构准确率：77.8%
-- 重构失败时，多数情况下仍生成有效且结构相近的分子，而非 invalid SMILES。
-- latent cosine similarity 与 Tanimoto similarity 正相关。
-- 相比 CDDD，LUMOS latent representation 在 t-SNE 上对不同 fluorophore scaffold 有更清晰的聚类。
+图 2 展示了 graph-to-sequence autoencoder 结构以及潜在空间分析。结果显示，该潜在空间不仅能较高精度重构分子，还能保持 Tanimoto 化学相似性与 latent cosine similarity 之间的相关性，并能按荧光团骨架形成更清晰的聚类。
 
-### 2. Property prediction：双分支神经网络预测器
+### 2. 性质预测模块
 
-作者构建两个神经网络预测器：
+LUMOS 构建了双分支神经网络预测系统：
 
-#### AGP：Attentive Graph Predictor
+- AGP：使用 MPNN 编码分子和溶剂图，并通过 cross-attention 学习不同性质对应的原子贡献；
+- LSP：使用冻结的 MolCT encoder 将分子映射到 latent representation，再与溶剂表示拼接后预测性质。
 
-用途：
+二者采用 multi-task learning，同时回归四个荧光性质：
 
-- 快速预测
-- 高通量筛选
-- 原子级可解释性分析
+- absorption maximum：$\lambda_{abs}$；
+- emission maximum：$\lambda_{emi}$；
+- logarithm of molar extinction coefficient：$\log \epsilon$；
+- photoluminescence quantum yield：PLQY / $\phi$。
 
-结构：
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-03.jpg]]
 
-- 分子图和溶剂图分别由 MPNN 编码。
-- 使用 cross-attention module 和 learnable query vectors，为每个性质学习 property-specific representation。
-- 多任务学习同时预测：
-  - λabs
-  - λemi
-  - log ε
-  - PLQY
+图 3 对应双分支预测系统和数据划分策略。论文比较了 random split、scaffold split 和 fluorophore split，其中 fluorophore split 按荧光团子结构划分，更接近新荧光骨架发现中的 OOD 泛化场景。
 
-特点：
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-04.jpg]]
 
-- 参数量相对较少。
-- 注意力权重可用于解释哪些原子 / 官能团对性质贡献大。
-- 注意力分布与 DFT 计算的 HOMO/LUMO 分布有较好对应。
+图 4 展示了 AGP 注意力权重与 DFT 计算得到的 HOMO/LUMO 分布之间的对比。作者观察到 AGP 的原子注意力与前线分子轨道密度分布有较好对应，说明模型在没有显式电子结构监督的情况下捕捉到了与荧光性质相关的电子结构信息。
 
-#### LSP：Latent Surrogate Predictor
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-05.jpg]]
 
-用途：
+图 5 展示了 Stokes shift 的物理一致性分析。模型不仅要分别预测吸收和发射波长，还需要保持二者之间的物理关系；作者用 Stokes error rate 衡量预测 Stokes shift 符号与真实值不一致的比例。
 
-- 学习 latent-to-property mapping。
-- 与生成模型 latent space 对齐。
-- 可微，用于 gradient-guided diffusion。
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-06.jpg]]
 
-结构：
+图 6 继续展示了预测模型在物理一致性和可解释性上的评估结果。AGP 和 LSP 在 Stokes error rate 上低于 MPNN 和 FLSF，说明 multi-task learning 对吸收、发射之间的联合关系建模有帮助。
 
-- 分子图经冻结的 MolCT encoder 得到 latent representation。
-- 溶剂图由 MPNN 编码。
-- 拼接后由 MLP 回归性质。
+### 3. 物理增强预测模块
 
-特点：
+为了提升 OOD 泛化，作者构建了高通量 TD-DFT workflow，并用神经网络进行 bias correction。
 
-- 比 AGP 稍低准确，但可以直接对 latent vector 求梯度。
-- 是后续 guided generation 的关键。
+TD-DFT pipeline 包含三步：
 
-### 3. Physics-informed hybrid predictor：TD-DFT + NN
+1. RDKit 生成初始构象并粗优化；
+2. xTB 进行半经验几何优化；
+3. GPU4PySCF 进行 SCF 和 TD-DFT 计算，得到激发光谱。
 
-为提升 OOD 泛化，作者构建高通量 TD-DFT 工作流：
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-07.jpg]]
 
-1. RDKit 生成初始构象并粗优化。
-2. xTB 进行半经验优化：
-   - GFN-FF
-   - GFN2-xTB
-   - ALPB implicit solvation
-3. GPU4PySCF 执行 SCF 和 TD-DFT 计算。
-4. 使用 PBE0 functional、def2-SVP basis set、IEF-PCM implicit solvent。
-5. TDDFT-ris 计算前 5 个激发态。
+图 7 展示了高通量 TD-DFT workflow 和 TD-DFT/NN hybrid predictor。混合模型用分子图和溶剂图预测动态 scaling factor $w_\theta$ 和 shifting factor $b_\theta$，对原始 TD-DFT 输出进行线性校正。
 
-性质估计：
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-08.jpg]]
 
-- λabs：S0 到最大激发态 Smax 的 excitation wavelength。
-- log ε：由对应 oscillator strength 估计。
-- λemi：由于当前 pipeline 不支持 excited-state geometry optimization，使用 S0 到 S1 的 vertical excitation wavelength 近似。
+图 8 比较了加速 TD-DFT pipeline 与 Gaussian 工作流的计算成本。作者报告该 workflow 在保持与 Gaussian 相近精度的同时，将单分子计算时间降低到约 $10^1$ 到 $10^2$ 秒量级，实现约三个数量级加速。
 
-局限：
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-09.jpg]]
 
-- λemi 没有做 S1 优化，因此存在误差。
-- oscillator strength 与 log ε 并非直接等价。
-- PLQY 缺乏标准 TD-DFT 计算协议。
+图 9 展示了 TD-DFT 系统偏差校正的思想。原始 TD-DFT 虽能捕捉相对趋势，但绝对误差较大；bias prediction network 通过学习分子和溶剂相关的缩放与平移参数，对 TD-DFT 输出进行校准。
 
-为校正 TD-DFT 系统偏差，作者加入 bias prediction network：
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-10.jpg]]
 
-- 输入：分子图和溶剂图。
-- 输出：动态 scaling factor wθ 和 shifting factor bθ。
-- 对原始 TD-DFT 输出进行线性校准。
+图 10 对比了 raw TD-DFT、pure NN 和 TD-DFT + NN hybrid predictor 的预测表现。hybrid predictor 在 fluorophore split 子集上对 $\lambda_{abs}$ 和 $\lambda_{emi}$ 同时改善 RMSE 和 $R^2$，说明其在精度和泛化之间取得更好平衡。
 
-该 hybrid model 在 fluorophore split subset 上对 λabs 和 λemi 的 RMSE 与 R² 都优于 raw TD-DFT 和 pure NN。
+### 4. 生成模块
 
-### 4. Generative framework：latent diffusion
+LUMOS 在潜在空间中训练 diffusion transformer，建模条件分布 $p(\mathcal{M}|\mathcal{P})$。正向扩散逐步向 latent vector 注入高斯噪声，反向过程由 DiT 预测噪声并迭代去噪，最终 latent vector 经预训练 decoder 解码为 SMILES。
 
-作者在 latent space 上构建 diffusion model：
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-11.jpg]]
 
-- forward process：对 latent vector x0 逐步加 Gaussian noise。
-- backward process：用 Diffusion Transformer 预测噪声并去噪。
-- 解码：将生成的 latent representation 输入预训练 SMILES decoder 得到分子。
+图 11 展示了双模式 latent diffusion 生成框架。prompt-conditioned generation 通过 adaLN 注入目标性质和溶剂介电常数；gradient-guided generation 则利用冻结 LSP 的梯度在去噪过程中主动引导采样轨迹。
 
-支持两种控制方式：
+![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/mineru-figure-12.jpg]]
 
-#### Prompt-conditioned generation
-
-输入条件包括：
-
-- solvent dielectric constant ε
-- λabs
-- λemi
-- log ε
-- PLQY
-
-条件通过 Gaussian RBF embedding 编码，再通过 adaptive layer normalization, adaLN 注入 DiT。
-
-优势：
-
-- 推理快，不需要采样时反向传播。
-- 可通过 dielectric constant 表示溶剂环境，潜在适用于混合溶剂或有效介电常数已知的微环境。
-
-不足：
-
-- 对 log ε 和 PLQY 的控制较弱。
-- 在分布尾部 prompt 时 uniqueness 和 novelty 降低。
-- 作者认为主要原因是荧光标注数据稀缺。
-
-#### Gradient-guided generation
-
-使用冻结的 LSP，根据目标性质定义 loss，并对 denoising trajectory 施加梯度引导。
-
-优势：
-
-- 灵活，可自定义目标函数。
-- 适合多目标优化或新任务适配。
-- 可通过微调 LSP 快速迁移到新数据。
-
-### 5. Molecular optimization：扩散突变 + NSGA-III
-
-作者将 partial noise-denoising cycle 作为 mutation operator，嵌入 evolutionary framework：
-
-1. 输入父代分子 latent。
-2. 加入部分噪声。
-3. guided denoising 生成结构相似但性质改进的后代。
-4. 用 NSGA-III 选择 Pareto-optimal population。
-5. 最后用 hybrid model 进行精细筛选。
-
-支持三种主要优化场景：
-
-#### 全局优化
-
-目标包括：
-
-- λemi
-- Stokes shift
-- log ε
-- PLQY
-
-以一个 lead molecule 为起点，LUMOS 在四个目标上均实现提升。
-
-#### Fragment optimization
-
-固定核心 scaffold，只优化 fragment：
-
-- 将分子拆成 fixed core 和 mutable fragment。
-- 只对 fragment latent 进行 noise-denoising mutation。
-- 生成 fragment 后重新接回 core。
-- 用 AGP 评价，并用 NSGA-III 选择。
-
-该模式适合保留已知荧光团核心，同时微调取代基。
-
-#### Cell permeability constrained optimization
-
-实际应用场景：Fluorescein 荧光性质较好，但生理 pH 下主要为阴离子，细胞膜通透性差。
-
-优化目标：
-
-- PAMPA permeability
-- lipophilicity
-- solubility
-
-约束：
-
-- 保持 λemi
-- 保持 Stokes shift
-- 保持 brightness = log ε × PLQY
-
-作者整合 ADMET-AI，并通过 guided diffusion 与 NSGA-III 搜索兼顾 ADMET 与荧光约束的分子。
-
-后续用 分子动力学模拟 验证膜通透性：
-
-- 计算 PMF free energy profiles
-- 计算 log Peff
-- 初始 Fluorescein log Peff = -8.90
-- 优化分子：
-  - Opt-1: -0.69
-  - Opt-2: -0.50
-  - Opt-3: -1.87
-
-这些结果表明优化分子膜通透性显著改善，同时保持或略微改善荧光性质。
+图 12 展示了 prompt-conditioned generation 的验证结果。对于 $\lambda_{abs}$ 和 $\lambda_{emi}$，输入 prompt 与 TD-DFT 或 NN 验证性质之间呈现较强正相关；但对 $\log \epsilon$ 和 PLQY 的控制较弱，作者将其主要归因于数据稀缺。
 
 ## 算法流程
 
-### LUMOS 总体流程
+### 1. 表示学习流程
 
-1. **数据准备**
-   - 预训练数据：ZINC、ChEMBL、PubChem，约 150 million molecules。
-   - 微调数据：FluoDB。
-   - 外部测试：TADF dataset。
-   - 性质预测数据：FluoDB。
-   - 清洗规则：去除超过 128 个 heavy atoms、多个 fragments、metal ions、tautomers 等。
+1. 输入分子 SMILES。
+2. RDKit 将分子解析为 molecular graph。
+3. 在分子图中加入 virtual atoms 以统一表示长度。
+4. MolCT graph encoder 编码真实原子和虚拟原子。
+5. 提取 virtual atoms 的嵌入作为 fixed-length latent representation。
+6. Transformer SMILES decoder 以 latent representation 为 prefix tokens，自回归重构 SMILES。
+7. 使用 maximum likelihood estimation 训练，并对 latent vectors 加 L2 regularization，减少记忆化、增强潜在空间连续性。
 
-2. **训练 autoencoder**
-   - 分子图输入 MolCT graph encoder。
-   - 加入 virtual atoms。
-   - 提取 virtual atoms embedding 作为 latent vector。
-   - Transformer decoder 重构 SMILES。
-   - 通过 MLE + L2 latent regularization 训练。
+### 2. AGP 预测流程
 
-3. **构建 latent chemical space**
-   - 检查重构准确率。
-   - 检查 latent similarity 与 Tanimoto similarity。
-   - 用 t-SNE 检查 scaffold 聚类。
+1. 输入分子图和溶剂图。
+2. 使用 MPNN 分别编码分子和溶剂，得到 atom-level features。
+3. 对每个目标性质设置一个 learnable query vector。
+4. query 与分子-溶剂特征通过 cross-attention 交互，得到性质特异的表示。
+5. MLP head 输出对应性质。
+6. attention weights 可用于分析原子对不同荧光性质的贡献。
 
-4. **训练神经网络性质预测器**
-   - AGP：图输入、cross-attention、多任务预测。
-   - LSP：latent-to-property，可微预测。
-   - 目标：λabs、λemi、log ε、PLQY。
+### 3. LSP 预测流程
 
-5. **构建物理混合预测器**
-   - RDKit 构象生成。
-   - xTB 几何优化。
-   - GPU4PySCF TD-DFT 激发态计算。
-   - NN bias correction 校正 TD-DFT 系统误差。
+1. 输入分子图和溶剂图。
+2. 分子图通过冻结的 MolCT encoder 得到 latent representation。
+3. 溶剂图通过 MPNN 编码并 mean pooling。
+4. 将分子 latent representation 和溶剂表示拼接。
+5. MLP 输出四个荧光性质。
+6. 由于 LSP 与生成潜在空间对齐且可微，可用于 gradient-guided generation。
 
-6. **训练 latent diffusion model**
-   - 在 autoencoder latent space 上训练 DiT。
-   - 支持 prompt-conditioned generation。
-   - 支持 gradient-guided generation。
+### 4. TD-DFT/NN hybrid predictor 流程
 
-7. **de novo generation**
-   - 输入目标性质 prompt，或定义目标 loss。
-   - diffusion 生成 latent。
-   - decoder 转为 SMILES。
-   - 用 NN / TD-DFT / hybrid predictor 验证。
+1. RDKit 生成构象并用 UFF 预优化。
+2. xTB 先用 GFN-FF 再用 GFN2-xTB 进行几何优化，并考虑隐式溶剂。
+3. GPU4PySCF 使用 PBE0 functional、def2-svp basis set 和 IEF-PCM implicit solvation model 进行 TD-DFT 计算。
+4. 从激发谱提取：
+   - $\lambda_{0\rightarrow max}$ 用于估计 absorption；
+   - $\lambda_{0\rightarrow1}$ 用于估计 emission。
+5. MPNN-based bias predictor 根据分子图和溶剂图输出 $w_\theta$ 和 $b_\theta$。
+6. 通过线性校正得到最终预测：
+   - $\tilde{\lambda}_{abs}=w_{\theta,abs}\lambda_{0\rightarrow max}+b_{\theta,abs}$；
+   - $\tilde{\lambda}_{emi}=w_{\theta,emi}\lambda_{0\rightarrow1}+b_{\theta,emi}$。
 
-8. **multi-objective molecular optimization**
-   - 以初始分子为父代。
-   - partial noise-denoising 作为 mutation。
-   - guided diffusion 向目标性质区域移动。
-   - NSGA-III 选择 Pareto population。
-   - hybrid predictor 后筛。
+### 5. Prompt-conditioned generation 流程
 
-9. **复杂应用验证**
-   - Fluorescein 细胞通透性优化。
-   - ADMET-AI 预测 ADMET 目标。
-   - TD-DFT / hybrid model 验证荧光。
-   - MD 计算 PMF 与 log Peff 验证膜通透性。
+1. 输入目标性质 $\lambda_{abs}$、$\lambda_{emi}$、$\log \epsilon$、PLQY 和溶剂介电常数 $\varepsilon$。
+2. 将标量条件归一化并用 Gaussian RBF embedding 表示。
+3. 通过 adaLN 将条件注入 DiT。
+4. 从高斯噪声开始反向去噪，生成 latent representation。
+5. 用预训练 decoder 解码为 SMILES。
+6. 用 TD-DFT 或 NN 验证生成分子的性质。
+
+### 6. Gradient-guided generation 流程
+
+1. 使用 unconditional DiT 进行基础去噪。
+2. 在每一步根据当前估计的 $\hat{x}_0$ 调用 LSP 预测性质。
+3. 根据目标性质定义 loss function $\mathcal{L}$。
+4. 计算 $\nabla_{x_t}\mathcal{L}$，将其作为外部偏置力修正去噪方向。
+5. 重复去噪直到得到最终 latent vector。
+6. decoder 解码为 SMILES。
+
+### 7. 多目标分子优化流程
+
+1. 从初始分子出发，编码到 latent space。
+2. 对 latent vector 进行部分加噪，再去噪，作为 mutation operator。
+3. 在去噪过程中可使用梯度引导，将候选推向目标性质更优区域。
+4. 生成一组结构相近的 offspring。
+5. 使用 NSGA-III 按多目标 Pareto 优化选择下一代。
+6. 迭代若干代后，使用 hybrid predictor 进行精细后筛选。
 
 ## 实验设置
 
 ### 数据集
 
-- **FluoDB**
-  - 用于 autoencoder 微调、性质预测、生成模型训练。
-  - 总训练数据约 45,000 molecule-solvent pairs 带 fluorescence labels。
-  - 单个性质可用样本约 10,000–20,000。
-  - 同时具有四个标签的分子为 5,041 个。
-- **TADF dataset**
-  - 外部 OOD 重构测试数据集。
-- **ZINC**
-- **ChEMBL**
-- **PubChem**
-  - autoencoder 和 DiT 预训练数据来源，约 150 million molecules。
-- 数据和验证数据可用链接：
-  - https://doi.org/10.5281/zenodo.18295513
+本文使用的数据包括：
+
+- FluoDB：用于 autoencoder fine-tuning、荧光性质预测模型训练与评估；
+- external TADF dataset：用于测试 autoencoder 对分布外分子的重构泛化；
+- ZINC、ChEMBL、PubChem：约 1.5 亿分子的混合库，用于 autoencoder 和 DiT 预训练；
+- fluorophore split 中选取 BODIPY、coumarin 和 naphthalimide derivatives 作为测试集；
+- ADMET-AI：用于细胞通透性优化任务中的 ADMET 性质预测；
+- DOPC bilayer 模型：用于膜通透性 MD 验证。
+
+### 数据清洗
+
+根据 Methods，数据清洗包括：
+
+- 移除重原子数超过 128 的分子；
+- 移除多片段分子；
+- 移除含金属离子的分子；
+- 移除 tautomers；
+- 对 external TADF test set 做去重，确保不与训练数据重叠。
+
+### 预测任务
+
+预测四个荧光性质：
+
+| 性质 | 说明 |
+|---|---|
+| $\lambda_{abs}$ | absorption maximum |
+| $\lambda_{emi}$ | emission maximum |
+| $\log \epsilon$ | logarithm of molar extinction coefficient |
+| PLQY / $\phi$ | photoluminescence quantum yield |
 
 ### 数据划分
 
-性质预测评估使用三种 split：
+预测模型使用三种划分：
 
-1. **Random split**
-   - 训练 / 验证 / 测试 = 8:1:1。
+1. random split：训练/验证/测试为 8:1:1；
+2. scaffold split：基于 Murcko scaffolds，训练/验证/测试为 8:1:1；
+3. fluorophore split：按荧光团子结构划分，BODIPY、coumarin、naphthalimide derivatives 作为测试集，其余按 8:2 分为训练和验证。
 
-2. **Scaffold split**
-   - 基于 Murcko scaffolds。
-   - 训练 / 验证 / 测试 = 8:1:1。
+### 对比方法
 
-3. **Fluorophore split**
-   - 基于不同 fluorophore substructures。
-   - BODIPY、coumarin、naphthalimide derivatives 作为测试集。
-   - 其余分子按 8:2 划分训练和验证。
-   - 用于减少 fluorophore-level data leakage，更接近实际新荧光团发现。
+预测模型对比：
 
-### Baseline models
-
-预测任务：
-
-- **MPNN**
-- **FLSF**
+- MPNN；
+- FLSF；
+- AGP；
+- LSP。
 
 表示学习对比：
 
-- **CDDD**
+- CDDD。
 
-优化任务：
+优化任务对比：
 
-- **QMO**
-- **Gen-DL**
-- **REINVENT4**
-
-其他工具 / 方法：
-
-- RDKit
-- xTB
-- GPU4PySCF
-- Gaussian 16
-- ADMET-AI
-- GROMACS
-- CHARMM-GUI
-- CGenFF
-- TIP3P
-- WHAM
+- QMO；
+- Gen-DL；
+- REINVENT4。
 
 ### 评价指标
 
-预测任务：
-
-- RMSE
-- R²
-- Stokes error rate
-
 表示学习：
 
-- Reconstruction accuracy
-- Validity
-- latent cosine similarity vs Tanimoto similarity
-- t-SNE scaffold clustering
+- reconstruction accuracy；
+- valid but different SMILES 比例；
+- invalid SMILES 比例；
+- latent cosine similarity 与 Tanimoto similarity 的相关性；
+- t-SNE scaffold clustering。
 
-生成任务：
+预测：
 
-- Validity
-- Uniqueness
-- Novelty
-- prompt-property correlation
-- TD-DFT / NN validation
+- RMSE；
+- $R^2$；
+- Stokes error rate；
+- 参数量；
+- 物理可解释性分析。
 
-优化任务：
+生成：
 
-- Hypervolume, HV
-- λemi maximum
-- Stokes shift maximum
-- log ε maximum
-- PLQY maximum
-- number of valid generated molecules
-- success rate evaluated by NN
-- success rate evaluated by NN + DFT
+- prompt 与验证性质之间的相关性；
+- validity；
+- uniqueness；
+- novelty；
+- TD-DFT / NN 验证性质。
 
-细胞通透性验证：
+多目标优化：
 
-- PMF profile
-- log Peff
-- ADMET predicted percentile scores
-- hybrid model fluorescence prediction
+- Hypervolume（HV）；
+- emission maximum；
+- Stokes shift；
+- $\log \epsilon$；
+- PLQY；
+- 生成有效分子数；
+- success rate under NN；
+- success rate under NN + DFT。
 
 ## 主要结果
 
-### 1. 表示学习结果
+### 1. 潜在空间具有较好重构能力和化学语义
 
-- FluoDB in-distribution test set 重构准确率：94.0%。
-- 外部 TADF dataset 重构准确率：77.8%。
-- 重构失败时多数输出仍为有效且结构相关的分子。
-- latent cosine similarity 与 Tanimoto similarity 正相关。
-- t-SNE 显示 LUMOS latent space 对不同 fluorophore scaffold 的分离更清晰，优于 CDDD。
+Autoencoder 在 FluoDB in-distribution test set 上达到 94.0% 重构成功率，在 external TADF dataset 上达到 77.8%。当重构失败时，模型多数情况下仍生成有效且结构相近的分子，而不是无效 SMILES。这表明潜在空间较连续、紧凑， invalid regions 较少。
 
-### 2. 性质预测结果
+Similarity analysis 显示 latent cosine similarity 与 chemical Tanimoto similarity 呈正相关。t-SNE 可视化显示，相比 CDDD，本文模型对不同 fluorophore scaffolds 的聚类更紧凑、分离更清晰。
 
-Table 1 中 RMSE 结果摘要：
+### 2. AGP 和 LSP 在预测中兼顾精度与物理一致性
 
-#### Random split
+Table 1 显示，在 random split 上 AGP、MPNN、FLSF 表现接近；在 scaffold split 和 fluorophore split 上，AGP 整体表现较好。LSP 略低于 AGP，但其优势在于可微且与生成 latent space 对齐，可用于 gradient-guided diffusion。
 
-| Model | Abs. | Emi. | LogE | PLQY |
-|---|---:|---:|---:|---:|
-| MPNN | 26.62 | 21.38 | 0.264 | 0.172 |
-| FLSF | 26.32 | 22.65 | 0.280 | 0.173 |
-| Attentive graph predictor | 26.80 | 23.30 | 0.266 | 0.186 |
-| Latent surrogate predictor | 27.56 | 25.36 | 0.290 | 0.188 |
+部分关键结果：
 
-#### Scaffold split
+| Split | Model | Abs. RMSE | Emi. RMSE | LogE RMSE | PLQY RMSE |
+|---|---|---:|---:|---:|---:|
+| Random split | MPNN | 26.62 | 21.38 | 0.264 | 0.172 |
+| Random split | FLSF | 26.32 | 22.65 | 0.280 | 0.173 |
+| Random split | AGP | 26.80 | 23.30 | 0.266 | 0.186 |
+| Random split | LSP | 27.56 | 25.36 | 0.290 | 0.188 |
+| Scaffold split | MPNN | 57.13 | 48.56 | 0.449 | 0.266 |
+| Scaffold split | FLSF | 63.98 | 57.14 | 0.471 | 0.285 |
+| Scaffold split | AGP | 58.34 | 47.74 | 0.432 | 0.258 |
+| Scaffold split | LSP | 62.35 | 53.81 | 0.441 | 0.262 |
+| Fluorophore split | MPNN | 48.62 | 49.45 | 0.327 | 0.342 |
+| Fluorophore split | FLSF | 57.91 | 56.58 | 0.334 | 0.356 |
+| Fluorophore split | AGP | 54.67 | 50.71 | 0.292 | 0.339 |
+| Fluorophore split | LSP | 46.77 | 51.15 | 0.333 | 0.348 |
 
-| Model | Abs. | Emi. | LogE | PLQY |
-|---|---:|---:|---:|---:|
-| MPNN | 57.13 | 48.56 | 0.449 | 0.266 |
-| FLSF | 63.98 | 57.14 | 0.471 | 0.285 |
-| Attentive graph predictor | 58.34 | 47.74 | 0.432 | 0.258 |
-| Latent surrogate predictor | 62.35 | 53.81 | 0.441 | 0.262 |
+作者还报告，AGP 和 LSP 的 Stokes error rate 低于 MPNN 和 FLSF，说明 multi-task learning 帮助模型学习 $\lambda_{abs}$ 和 $\lambda_{emi}$ 之间的物理耦合关系。
 
-#### Fluorophore split
+### 3. TD-DFT/NN hybrid predictor 提高 OOD 泛化
 
-| Model | Abs. | Emi. | LogE | PLQY |
-|---|---:|---:|---:|---:|
-| MPNN | 48.62 | 49.45 | 0.327 | 0.342 |
-| FLSF | 57.91 | 56.58 | 0.334 | 0.356 |
-| Attentive graph predictor | 54.67 | 50.71 | 0.292 | 0.339 |
-| Latent surrogate predictor | 46.77 | 51.15 | 0.333 | 0.348 |
+纯神经网络在 OOD 样本上的 RMSE 可达到约 50 nm，这对精细筛选来说偏大。作者开发的高通量 TD-DFT pipeline 相比 Gaussian 有约三个数量级加速，并在 $\lambda_{abs}$ 和 $\log \epsilon$ 上达到与 Gaussian 接近的结果。
 
-主要结论：
+但原始 TD-DFT 仍有系统误差。加入 bias prediction network 后，TD-DFT/NN hybrid predictor 在 fluorophore split test subset（$n=1,948$）上对 $\lambda_{abs}$ 和 $\lambda_{emi}$ 均优于 raw TD-DFT 和 pure NN。
 
-- random split 上 AGP、MPNN、FLSF 表现接近。
-- scaffold split 和 fluorophore split 中，AGP / LSP 在部分性质上更优，显示更好的泛化潜力。
-- AGP 和 LSP 的参数量明显少于 MPNN 和 FLSF。
-- AGP 注意力权重与 DFT HOMO/LUMO 分布一致，显示一定物理可解释性。
-- AGP 和 LSP 的 Stokes error rate 低于 baseline，说明对 λabs 与 λemi 的物理关系建模更稳定。
+### 4. Prompt-conditioned generation 可控制吸收与发射波长
 
-### 3. TD-DFT/NN hybrid predictor 结果
+在 polar solvent（$\varepsilon=78.0$）和 non-polar solvent（$\varepsilon=5.0$）下，prompt-conditioned generation 对 $\lambda_{abs}$ 和 $\lambda_{emi}$ 显示较强控制能力，输入 prompt 与验证性质之间有明显正相关。
 
-- GPU 加速 TD-DFT 工作流相比 Gaussian 标准流程加速约三个数量级。
-- 单分子计算成本降至约 10¹–10² 秒。
-- 对 λabs 和 log ε，快速 TD-DFT pipeline 与 Gaussian 精度相近。
-- 对 λemi，未做 S1 优化的计算与 Gaussian 同协议结果相近，但长波段偏差明显。
-- Gaussian with S1-optimized geometries 对 λemi RMSE 最低。
-- TD-DFT + NN hybrid model 对 λabs 和 λemi 的 RMSE 与 R² 均优于 raw TD-DFT 和 pure NN。
+但对 $\log \epsilon$ 和 PLQY 的控制较弱，作者认为主要原因是数据不足：总训练数据约 45,000 molecule-solvent pairs，有单个性质标签的样本约 10,000–20,000，四个标签同时具备的分子只有 5,041 个。
 
-### 4. de novo generation 结果
+### 5. Gradient-guided generation 能提升目标性质
 
-Prompt-conditioned generation：
+作者在 ethanol 环境中用 gradient-guided diffusion 生成四个荧光性质最大化的分子。相比 unconditional baseline，guided generation 生成分子的目标性质分布整体提高。对于 $\log \epsilon$，NN 预测显示明显提升，但 TD-DFT 验证的 oscillator strength 差异较小，作者认为这可能来自 oscillator strength 与 $\log \epsilon$ 并非严格等价。
 
-- 对 λabs 和 λemi，在 ε = 5.0 与 ε = 78.0 下，输入 prompt 与验证性质呈强正相关。
-- 对 log ε 和 PLQY，控制较弱，可能由于数据稀缺。
-- 双目标 prompt λabs + log ε 下，生成分子的二维性质分布与输入 prompt 相关，支持多目标生成。
+### 6. 多目标分子优化优于基线
 
-Gradient-guided generation：
+在 global optimization 和 fragment optimization 中，LUMOS 都优于 QMO、Gen-DL、REINVENT4。
 
-- 在 ethanol 环境中，通过 LSP 梯度引导最大化四个荧光性质。
-- 相比 unconditional generation，guided generation 得到的分子性质显著增强。
-- 对 log ε，NN 预测提升明显，但 TD-DFT oscillator strength 只显示轻微差异，原因可能是 oscillator strength 与 log ε 物理上不完全等价。
+Table 2 中关键结果：
 
-### 5. 多目标分子优化结果
+| Task | Method | HV | Emi | Stokes | LogE | PLQY | #Mols | Success rate NN | Success rate NN + DFT |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Global optimization | LUMOS | 0.814 | 670.57 | 225.20 | 5.23 | 0.89 | 793 | 52.2% | 8.1% |
+| Global optimization | QMO | 0.241 | 582.94 | 155.80 | 4.86 | 0.37 | 7 | 85.7% | 14.3% |
+| Global optimization | Gen-DL | 0.383 | 702.46 | 158.04 | 5.19 | 0.61 | 85 | 25.9% | 1.2% |
+| Global optimization | REINVENT4 | 0.315 | 610.18 | 178.31 | 4.86 | 0.49 | 2601 | 17.3% | 2.2% |
+| Fragment optimization | LUMOS | 0.808 | 673.40 | 216.09 | 5.21 | 0.99 | 1241 | 61.3% | 50.3% |
+| Fragment optimization | QMO | 0.082 | 427.09 | 64.34 | 4.18 | 0.46 | 3 | 0.0% | 0.0% |
+| Fragment optimization | Gen-DL | 0.220 | 525.49 | 149.27 | 4.65 | 0.56 | 94 | 8.5% | 7.4% |
+| Fragment optimization | REINVENT4 | 0.518 | 582.94 | 194.33 | 4.94 | 0.87 | 13112 | 11.8% | 10.3% |
 
-#### Global optimization
+需要注意，global optimization 中 QMO 的 NN + DFT success rate 高于 LUMOS，但 QMO 只生成 7 个满足约束的分子，样本数很小；LUMOS 在 HV、性质最大值和有效分子数量上更强。
 
-目标：λemi、Stokes shift、log ε、PLQY。
+### 7. 细胞通透性优化展示真实应用潜力
 
-| Method | HV | Emi | Stokes | LogE | PLQY | #Mols | Success rate (NN) | Success rate (NN + DFT) |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| LUMOS | 0.814 | 670.57 | 225.20 | 5.23 | 0.89 | 793 | 52.2% | 8.1% |
-| QMO | 0.241 | 582.94 | 155.80 | 4.86 | 0.37 | 7 | 85.7% | 14.3% |
-| Gen-DL | 0.383 | 702.46 | 158.04 | 5.19 | 0.61 | 85 | 25.9% | 1.2% |
-| REINVENT4 | 0.315 | 610.18 | 178.31 | 4.86 | 0.49 | 2601 | 17.3% | 2.2% |
+作者以 Fluorescein 为例，优化 PAMPA、lipophilicity 和 solubility，同时保持 emission、Stokes shift 和 brightness 约束。优化后候选分子的 PMF profile 和 effective membrane permeability $\log P_{eff}$ 显示膜通透性显著改善：
 
-LUMOS 在 HV 和综合性质上表现最好。
+- Fluorescein：$\log P_{eff}=-8.90$；
+- Opt-1：$\log P_{eff}=-0.69$；
+- Opt-2：$\log P_{eff}=-0.50$；
+- Opt-3：$\log P_{eff}=-1.87$。
 
-#### Fragment optimization
-
-| Method | HV | Emi | Stokes | LogE | PLQY | #Mols | Success rate (NN) | Success rate (NN + DFT) |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| LUMOS | 0.808 | 673.40 | 216.09 | 5.21 | 0.99 | 1241 | 61.3% | 50.3% |
-| QMO | 0.082 | 427.09 | 64.34 | 4.18 | 0.46 | 3 | 0.0% | 0.0% |
-| Gen-DL | 0.220 | 525.49 | 149.27 | 4.65 | 0.56 | 94 | 8.5% | 7.4% |
-| REINVENT4 | 0.518 | 582.94 | 194.33 | 4.94 | 0.87 | 13112 | 11.8% | 10.3% |
-
-LUMOS 在 fragment optimization 上优势更明显，尤其 NN + DFT success rate 达到 50.3%。
-
-### 6. 细胞通透性优化结果
-
-以 Fluorescein 为起点：
-
-- 优化目标：PAMPA、lipophilicity、solubility。
-- 约束：保持 λemi、Stokes shift、brightness。
-
-结果：
-
-- 优化分子 ADMET 相关性质持续改善。
-- 荧光约束保持在阈值以上。
-- MD 验证显示膜通透性显著改善：
-  - Fluorescein: log Peff = -8.90
-  - Opt-1: log Peff = -0.69
-  - Opt-2: log Peff = -0.50
-  - Opt-3: log Peff = -1.87
-
-作者还指出：
-
-- Opt-1 / Opt-2 可能通过中和可离子化基团改善通透性。
-- Opt-3 带阳离子和长脂肪链，可能更像膜锚定探针。
+Opt-1 和 Opt-2 主要通过中和可电离基团提高通透性，Opt-3 则带正电并有长脂肪链，可能更像 membrane-anchoring probe。该结果说明 LUMOS 能探索多种化学机制，而不是单一路径优化。
 
 ## 创新点
 
 1. **提出 LUMOS 数据-物理双驱动框架**  
-   将 分子表示学习、性质预测、TD-DFT、扩散模型 和 多目标进化算法 整合到荧光小分子反向设计中。
+   将 latent molecular representation、NN predictors、fast TD-DFT workflow、latent diffusion 和 evolutionary optimization 统一在一个荧光分子逆向设计框架中。
 
-2. **共享 latent representation 连接生成与预测**  
-   通过 graph-to-sequence autoencoder 构建连续、语义化 latent chemical space，使生成、预测和优化在同一空间中协同工作。
+2. **生成器与预测器共享潜在空间**  
+   LSP 直接在 autoencoder latent representation 上预测性质，使生成过程可以通过性质梯度进行引导。
 
-3. **双分支神经网络预测器设计**
-   - AGP：快速、可解释。
-   - LSP：与 latent space 对齐且可微，支持梯度引导生成。
+3. **引入 fluorophore split 作为更严格泛化评估**  
+   与 random split 和 scaffold split 相比，fluorophore split 更能测试模型对未见荧光团类型的泛化能力。
 
-4. **高通量 TD-DFT + NN bias correction**
-   通过 GPU4PySCF 和 bias prediction network，在速度、准确性和 OOD 泛化之间取得平衡。
+4. **物理一致性评估不只看 RMSE**  
+   通过 Stokes error rate、AGP attention 与 HOMO/LUMO 分布对齐等方式，评估模型是否捕捉荧光性质中的物理关系。
 
-5. **dual-mode diffusion generation**
-   同时支持 prompt-conditioned generation 和 gradient-guided generation，兼顾推理效率与目标函数灵活性。
+5. **加速 TD-DFT 与 NN 偏差校正结合**  
+   利用 GPU4PySCF 加速 TD-DFT，再用 bias prediction network 校准系统误差，在速度、精度和泛化之间取得平衡。
 
-6. **diffusion mutation + NSGA-III**
-   将 partial noise-denoising 用作分子优化中的 mutation operator，并结合 NSGA-III 搜索 Pareto-optimal molecules。
+6. **双模式 latent diffusion generation**  
+   同时支持 prompt-conditioned generation 和 gradient-guided generation，分别适合快速条件生成和灵活目标优化。
 
-7. **支持 global 与 fragment 两个尺度的优化**
-   既能探索 scaffold-level 结构，也能在固定核心的情况下进行局部 fragment refinement。
-
-8. **面向实际荧光探针问题的复杂约束优化**
-   将 ADMET-AI、荧光性质约束和 MD 验证结合，用于优化 Fluorescein 的细胞通透性。
+7. **扩散变异算子结合 NSGA-III**  
+   将部分 noise-denoising 作为 mutation operator，结合 NSGA-III 进行多目标优化，支持 global optimization、fragment optimization 和 ADMET-constrained optimization。
 
 ## 局限性
 
-1. **prompt-conditioned generation 的 novelty 和 uniqueness 有限**  
-   特别是在 prompt 位于训练分布尾部时，生成分子的 novelty / uniqueness 下降。
+1. **prompt-conditioned generation 的 novelty 和 uniqueness 仍有限**  
+   作者在 Discussion 中指出，prompt-conditioned generation 当前的 novelty 和 uniqueness 有限制，尤其在 prompt 位于训练分布尾部时更加明显。
 
-2. **对 log ε 和 PLQY 的控制较弱**  
-   作者认为主要原因是数据稀缺。FluoDB 中同时具备四个标签的分子只有 5,041 个。
+2. **对 $\log \epsilon$ 和 PLQY 的控制较弱**  
+   生成模型对吸收和发射波长控制较好，但对 $\log \epsilon$ 和 PLQY 的控制弱。作者将其归因于相关标签数据稀缺，尤其是四个性质同时标注的样本较少。
 
-3. **TD-DFT pipeline 对 λemi 的近似仍有限**  
-   当前 workflow 不支持 excited-state geometry optimization，因此用 S0 → S1 vertical excitation wavelength 近似 λemi。
+3. **TD-DFT emission 估计尚不完整**  
+   当前 pipeline 不支持 excited-state geometry optimization，因此用 $S_0 \rightarrow S_1$ vertical excitation wavelength 估计 $\lambda_{emi}$。这可能限制发射波长预测精度，尤其在长波长区域。
 
-4. **oscillator strength 与 log ε 不是直接等价**
-   因此 TD-DFT 对 log ε 的验证存在物理映射上的局限。
+4. **$\log \epsilon$ 与 oscillator strength 的关系不完全等价**  
+   TD-DFT 计算 oscillator strength，而摩尔消光系数与吸收带积分相关，并非直接等价，因此 $\log \epsilon$ 的物理验证存在局限。
 
-5. **PLQY 缺少标准 TD-DFT 计算协议**
-   因此 PLQY 主要依赖 NN 预测，物理验证不如 λabs / λemi 充分。
+5. **复杂环境效应尚未充分建模**  
+   论文指出，当前框架对 pH-responsive probes 和 aggregation-induced emission systems 等复杂环境下的荧光行为建模不足。
 
-6. **复杂环境下的荧光行为建模不足**
-   例如：
-   - pH-responsive probes
-   - aggregation-induced emission
-   - heterogeneous microenvironment
-   - protein / membrane / organelle local environment  
-   这些数据在现有数据库中不足，通用量子化学协议也尚不成熟。
+6. **实验合成与真实测量验证不足**  
+   当前摘要和正文中主要报告 TD-DFT、NN、MD 等计算验证。是否有新生成分子的实际合成和实验测量，当前解析文本中未发现明确说明，待补充原文/PDF 后确认。
 
-7. **实验合成与真实测量验证不足**
-   文中主要通过 TD-DFT、hybrid predictor 和 MD 验证生成结果。是否有实际合成与实验测试，依据当前摘取文本不足，待补充原文/PDF 后确认。
-
-8. **year、venue、DOI 缺失**
-   Zotero 元数据未提供，待补充原文/PDF 后确认。
+7. **年份、venue、DOI 元数据缺失**  
+   Zotero 元数据中 year、venue、DOI 均为空，待补充原文/PDF 后确认。
 
 ## 相关概念
 
 - [[荧光分子设计]]
-- [[荧光小分子]]
-- [[荧光探针]]
-- [[多目标分子优化]]
+- [[分子逆向设计]]
 - [[多目标优化]]
-- [[反向分子设计]]
-- [[de novo molecular generation]]
-- [[分子表示学习]]
-- [[latent chemical space]]
-- [[分子自编码器]]
-- [[graph-to-sequence autoencoder]]
-- [[分子图神经网络]]
-- [[MPNN]]
-- [[Graph Transformer]]
-- [[MolCT]]
-- [[SMILES decoder]]
-- [[latent diffusion model]]
-- [[Diffusion Transformer]]
-- [[adaptive layer normalization]]
-- [[gradient-guided diffusion]]
-- [[prompt-conditioned generation]]
-- [[TD-DFT]]
-- [[time-dependent density functional theory]]
-- [[量子化学计算]]
-- [[GPU4PySCF]]
-- [[xTB]]
-- [[RDKit]]
-- [[Gaussian]]
-- [[分布外泛化]]
-- [[OOD generalization]]
-- [[物理一致性]]
+- [[潜在空间]]
 - [[Stokes shift]]
-- [[Kasha's rule]]
-- [[HOMO]]
-- [[LUMO]]
-- [[oscillator strength]]
-- [[molar extinction coefficient]]
-- [[photoluminescence quantum yield]]
-- [[NSGA-III]]
-- [[Pareto optimality]]
-- [[Hypervolume]]
 - [[ADMET]]
-- [[ADMET-AI]]
-- [[细胞膜通透性]]
-- [[PAMPA]]
-- [[lipophilicity]]
-- [[solubility]]
-- [[分子动力学模拟]]
-- [[PMF]]
-- [[umbrella sampling]]
-- [[WHAM]]
-
+- [[膜通透性]]
+- [[Pareto Front]]
+- [[Hypervolume Indicator]]
+- [[分子优化]]
 ## 相关方法
 
-- [[LUMOS]]
-- [[Attentive Graph Predictor]]
-- [[Latent Surrogate Predictor]]
-- [[TD-DFT/NN hybrid predictor]]
-- [[graph-to-sequence autoencoder]]
-- [[MolCT Graph Encoder]]
-- [[Transformer SMILES decoder]]
-- [[Diffusion Transformer]]
-- [[latent diffusion]]
-- [[prompt-conditioned generation]]
-- [[gradient-guided generation]]
+- [[Latent Diffusion Model]]
+- [[TD-DFT]]
+- [[Message Passing Neural Network]]
 - [[NSGA-III]]
-- [[QMO]]
-- [[Gen-DL]]
-- [[REINVENT4]]
-- [[FLSF]]
-- [[MPNN]]
-- [[CDDD]]
-- [[ADMET-AI]]
-- [[GPU4PySCF]]
-- [[TDDFT-ris]]
-- [[GFN2-xTB]]
-- [[IEF-PCM]]
-- [[PBE0]]
-- [[def2-SVP]]
-- [[GROMACS]]
-- [[CHARMM-GUI]]
-- [[CGenFF]]
+## 相关数据集
 
+- [[ZINC]]
+- [[ChEMBL]]
+## 相关模型
+
+- [[Diffusion Transformer]]
 ## 相关论文
 
-- [[Multi-objective fluorescent molecule design with a data-physics dual-driven generative framework]]
-- [[MolSculptor: an adaptive diffusion-evolution framework enabling generative drug design for multi-target affinity and selectivity]]
-- [[A modular artificial intelligence framework to facilitate fluorophore design]]
-- [[Generative Deep Learning-Based Efficient Design of Organic Molecules with Tailored Properties]]
-- [[De novo creation of a naked eye-detectable fluorescent molecule based on quantum chemical computation and machine learning]]
-- [[Learning continuous and data-driven molecular descriptors by translating equivalent chemical representations]]
-- [[Junction Tree Variational Autoencoder for Molecular Graph Generation]]
-- [[Structure-based drug design with equivariant diffusion models]]
-- [[Chemprop: A Machine Learning Package for Chemical Property Prediction]]
-- [[Scalable Diffusion Models with Transformers]]
-- [[Universal Guidance for Diffusion Models]]
-- [[Optimizing molecules using efficient queries from property evaluations]]
-- [[Reinvent 4: Modern AI-driven generative molecule design]]
-- [[ADMET-AI: a machine learning ADMET platform for evaluation of large-scale chemical libraries]]
-- [[Predicting a Drug’s Membrane Permeability: A Computational Model Validated With in Vitro Permeability Assay Data]]
+- [[Molecular CT]]
+- [[Continuous and Data-Driven Descriptors]]
+- [[Chemprop]]
+- [[REINVENT4]]
+- [[ADMET-AI]]
+- [[MolSculptor]]
 
 ## 源文件
 
-- citekey: `liMultiobjectiveFluorescentMolecule`
-- title: `Multi-objective fluorescent molecule design with a data-physics dual-driven generative framework`
-- authors: Yanheng Li, Zhichen Pu, Lijiang Yang, Zehao Zhou, Yi Qin Gao
-- year: 待补充原文/PDF 后确认
-- venue: 待补充原文/PDF 后确认
-- DOI: 待补充原文/PDF 后确认
-- collections: 多目标分子优化
-- data availability: https://doi.org/10.5281/zenodo.18295513
-- code availability: https://github.com/egg5154/LUMOS
+- Zotero citekey：liMultiobjectiveFluorescentMolecule
+- 标题：Multi-objective fluorescent molecule design with a data-physics dual-driven generative framework
+- 作者：Yanheng Li, Zhichen Pu, Lijiang Yang, Zehao Zhou, Yi Qin Gao
+- 年份：待补充原文/PDF 后确认
+- 期刊/会议：待补充原文/PDF 后确认
+- DOI：待补充原文/PDF 后确认
+- Zotero collection：多目标分子优化
+- 正文来源：MinerU full.md
 
-## 图表摘录
+## 代码与数据
 
-![[raw/zotero/images/多目标分子优化/基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule/page-001.png]]
+### 代码
+
+未在当前解析文本中发现明确代码仓库。
+
+### 数据集 / Benchmark
+
+未在当前解析文本中发现明确数据集或 benchmark 链接。
+
+### 其他链接
+
+- https://github.com/egg5154/LUMOS
+- https://doi.org/10.5281/zenodo.18295513
+- https://www.rdkit.org/
+- https://doi.org/10.48550/arXiv.1802.04364
+- https://doi.org/10.48550/arXiv.2212.01385
+- https://doi.org/10.48550/arXiv.2505.01912
+- https://doi.org/10.26434/chemrxiv-2025-v4758-v2
+- https://doi.org/10.48550/arXiv.2012.11816
+- https://doi.org/10.48550/arXiv.2404.09452
+- https://doi.org/10.48550/arXiv.2212.09748
+- https://doi.org/10.48550/arXiv.2304.14802
+- https://doi.org/10.48550/arXiv.2302.07121
 
 ## Zotero 原始摘要
 
-无
+无。
 
 ## Zotero 原始笔记
 
@@ -789,56 +526,23 @@ LUMOS 在 fragment optimization 上优势更明显，尤其 NN + DFT success rat
 
 ## 我的理解
 
-这篇论文的关键价值不只是提出一个新的生成模型，而是将荧光分子设计中常见的三个痛点放在一个统一框架内解决：
+这篇论文的重点不只是提出一个新的分子生成模型，而是围绕荧光分子设计这个具体领域，把“表示学习—性质预测—物理验证—条件生成—多目标优化”串成一个完整闭环。它的工程思路比较清晰：快速神经网络负责大规模搜索和梯度引导，TD-DFT/NN hybrid predictor 负责更可靠的后筛选，NSGA-III 负责多目标 Pareto 选择。
 
-1. **搜索空间问题**  
-   通过 autoencoder 把离散分子结构压缩到连续 latent space，使扩散模型和进化优化更容易进行。
+我认为最值得关注的是 LSP 的设计。它牺牲了一些预测精度，但换来了与生成 latent space 的严格对齐，因此可以作为生成模型的可微性质引导器。这种设计体现了生成任务和预测任务之间的协同，而不是简单地先生成再外部打分。
 
-2. **预测可信度问题**  
-   纯 NN 很快但 OOD 不可靠；TD-DFT 更物理但太慢。LUMOS 用 AGP / LSP / hybrid predictor 分层使用：
-   - 优化过程中用快模型。
-   - 最后筛选用 TD-DFT + NN 校正。
-   这是一种比较实用的 hierarchical screening 策略。
+另一个重要点是 fluorophore split。荧光分子设计真正困难的场景不是随机划分下的插值预测，而是对新荧光骨架、新电子结构模式的外推。本文用 fluorophore split 评价 AGP、LSP 和 hybrid predictor，比单纯 random split 更有实际意义。
 
-3. **多目标优化问题**  
-   荧光分子设计不是单性质优化。LUMOS 把 gradient-guided diffusion 当作 mutation operator，再用 NSGA-III 维护 Pareto front，这个设计适合同时处理多个目标和约束。
-
-我认为这篇工作的一个重要启发是：在科学分子设计任务中，生成模型本身不是全部，真正有效的系统需要同时具备：
-
-- 可导航的表示空间
-- 多层次预测器
-- 物理验证或物理校正
-- 多目标优化机制
-- 任务特定约束接口
-- 后验筛选流程
-
-它也说明荧光分子设计比一般药物性质优化更依赖物理一致性，因为 λabs、λemi、Stokes shift、PLQY 等性质之间存在电子结构和热力学关系，不能完全当作独立标签处理。
+不过，本文仍然主要依赖计算验证。对于生成分子是否真的可合成、是否在真实溶剂和复杂生物环境中保持预测荧光性质，还需要进一步实验支持。特别是 PLQY 和 $\log \epsilon$ 的数据稀缺问题，可能是限制该方向继续提升的关键瓶颈。
 
 ## 后续问题
 
-1. LUMOS 生成的候选分子是否经过真实合成和实验验证？当前摘取文本中未看到明确湿实验验证，待补充原文/PDF 后确认。
-
-2. 对 PLQY 的预测是否足够可靠？  
-   PLQY 机制复杂，和非辐射跃迁、构象、环境等有关，仅用 NN 是否会有较大误差？
-
-3. 当前 TD-DFT pipeline 未做 excited-state geometry optimization，对 λemi 的误差在实际设计中会带来多大影响？
-
-4. prompt-conditioned generation 的 novelty / uniqueness 如何进一步提升？  
-   是否可以通过更大规模荧光数据、主动学习或 self-training 改善？
-
-5. LUMOS 是否可以扩展到：
-   - aggregation-induced emission
-   - pH-responsive fluorescent probes
-   - solvatochromic probes
-   - protein-bound fluorophores
-   - organelle-specific probes
-
-6. fragment optimization 中 fragment 重新连接规则是否会限制化学可合成性？
-
-7. NSGA-III 与 diffusion mutation 的耦合是否可以替换为其他 多目标贝叶斯优化 或 质量多样性搜索 方法？
-
-8. hybrid TD-DFT/NN predictor 的 bias correction 是否会在极端 OOD scaffold 上失效？
-
-9. 对溶剂只使用 dielectric constant ε 是否足以描述真实溶剂效应？氢键、极性、黏度、特异性相互作用可能需要更丰富的环境表示。
-
-10. LUMOS 中 latent space 的 smoothness 与 molecular validity 的关系是否可以定量评估，例如局部插值、扰动稳定性、合成可达性变化？
+1. LUMOS 生成的 top candidates 是否经过真实合成和实验光谱验证？当前解析文本中未发现明确说明，待补充原文/PDF 后确认。
+2. FluoDB 中不同性质标签缺失严重，是否可以通过半监督、多任务缺失标签学习或主动学习进一步提升 PLQY 和 $\log \epsilon$ 控制能力？
+3. 当前 TD-DFT pipeline 不做 excited-state geometry optimization，未来如何在保持高通量的同时改进 $\lambda_{emi}$ 预测？
+4. 对 pH-responsive probes、AIE systems、蛋白结合环境中的荧光变化，LUMOS 需要引入哪些环境表征？
+5. prompt-conditioned generation 中 novelty 和 uniqueness 下降的主要原因是数据稀缺、latent space 过窄，还是 diffusion condition 训练不稳定？
+6. Fragment optimization 中连接规则目前较简单，是否会引入不可合成或化学不合理的连接方式？
+7. NSGA-III 的目标归一化、参考点设置和约束处理对最终 Pareto front 影响多大？
+8. hybrid predictor 的 bias correction 是否会在非常新颖的骨架上过拟合训练分布偏差？
+9. LUMOS 是否可以与合成可及性评分、反应模板或 retrosynthesis planner 联合使用？
+10. 对荧光分子设计来说，是否需要把 excited-state dynamics、non-radiative decay 和 conformational flexibility 纳入生成目标？

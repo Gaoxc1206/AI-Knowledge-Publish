@@ -2,27 +2,40 @@
 type: "method"
 status: "enriched"
 category: "强化学习方法"
-domain: "多目标分子设计"
+domain: "多目标分子生成与强化学习"
+background: "included"
 ---
-# hindsight experience replay
+# Hindsight Experience Replay
 
-## 定义
+## 标准定义
 
-Hindsight [[replay buffer|experience replay]]（HER）是一种配合 [[replay buffer]] 使用的训练方法，用于缓解硬约束或[[reward sparsity|稀疏奖励]]场景下的学习困难。在这篇工作中，它会把过去采样到的轨迹重新标注为其他 [[focus region|goal region]] 下的“成功经验”，从而让原本未命中目标的样本也能参与训练。它的作用是提高训练稳定性，并帮助模型更有效地学习不同[[focus region|目标区域]]的生成策略。
+Hindsight Experience Replay（HER）是一类用于稀疏奖励强化学习的经验重标注方法：把一条轨迹在“原始目标”下看作失败后，再用轨迹中实际达到的状态或结果替换目标，构造新的训练样本，从而让失败经验也能提供有效学习信号。它常与[[经验回放]]结合使用，核心作用是把“没完成原目标”的轨迹转化为“完成了另一个实际达成目标”的正样本。
+
+## 在本知识库中的用法
+
+在这篇工作中，HER 用来缓解 goal-conditioned [[GFlowNet|GFlowNets]] 中 hard constraint 带来的稀疏奖励问题：由于只有落入[[目标区域]]的分子才得到非零奖励，大量轨迹会得到 0 奖励，因此作者结合 replay buffer 和 hindsight experience replay，对未达到原目标的轨迹进行目标重标注，使其仍能提供训练信号。
 
 ## 关键点
 
-- 在目标条件 [[GFlowNet]] 中，HER 与 replay buffer 配合使用。
-- 它会对历史轨迹进行重新标注：如果某条轨迹落入了另一个 goal region，就将其视为该目标下的成功样本。
-- 这样可以缓解 hard constraint 带来的奖励稀疏问题。
-- 它也有助于减少训练不稳定，提高采样效率。
-- 在该论文中，HER 是为 [[goal-conditioning|goal-conditioned]] 设定服务的辅助训练机制，具体实现细节待从更多论文中补充。
+- HER 的核心是“事后改写目标”：将失败轨迹按其实际结果重新解释为成功轨迹。
+- 它主要解决稀疏奖励和样本效率问题，特别适合目标明确但达成困难的任务。
+- 在本知识库对应论文中，HER 不是独立主方法，而是配合 [[Replay Buffer]] 稳定训练的辅助机制。
+- 这里的使用场景是 goal-conditioned [[GFlowNet]]s：原目标区域未命中时，轨迹仍可通过重标注贡献学习信号。
+- 该用法与 [[Reward Shaping]] 共同服务于对目标区域（[[目标区域|focus region]]）的更稳定学习。
 
 ## 别名
 
 - HER
-- hindsight replay
-- hindsight relabeling
+- Hindsight Experience Replay
+- 事后经验回放
+- 目标重标注经验回放
+
+## 外部背景
+
+- HER 最早常见于目标导向强化学习，用于把稀疏奖励问题转化为更密集的监督信号。
+- 经典做法会从同一条轨迹中采样“未来达成的状态”作为新目标，形成额外训练样本。
+- HER 与经验回放常配套使用，后者负责复用历史轨迹，前者负责为历史轨迹赋予新的目标语义。
+- 待核对经典来源
 
 ## 相关论文
 

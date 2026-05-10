@@ -20,325 +20,123 @@ original_title: "Multi-Objective-Guided Discrete Flow Matching for Controllable 
 ---
 ## 一句话总结
 
-**Multi-Objective-Guided Discrete Flow Matching for Controllable Biological Sequence Design** 提出 **Multi-Objective-Guided Discrete Flow Matching (MOG-DFM)**，用于在离散生物序列生成过程中引入多目标引导，使预训练 Discrete Flow Matching 生成器能够朝多个性质的 Pareto front 方向采样，并在肽段 binder 设计和 enhancer DNA 设计任务中展示了较好的多目标权衡能力。
+**Multi-Objective-Guided Discrete Flow Matching for Controllable Biological Sequence Design** 提出 **MOG-DFM**，在预训练 **Discrete Flow Matching** 生成器采样过程中加入多目标引导与自适应超锥过滤，用于生成在多个功能/生物物理指标之间更接近 Pareto 高效折中的肽结合物和 enhancer DNA 序列。
 
 ## 研究问题
 
-本文关注的问题是：如何在离散生物序列空间中生成同时满足多个、可能相互冲突的功能和生物物理性质的序列。
+生物序列设计常常不是单一指标优化问题，而是需要同时满足多个可能冲突的目标。例如：
 
-具体包括：
+- 治疗性肽需要高结合亲和力、低溶血性、较好溶解性、较长半衰期和低非特异性污染。
+- enhancer DNA 设计需要同时控制 enhancer class 与 DNA shape。
+- 这些目标之间可能存在冲突，单目标优化容易导致某一性质提升但其他性质显著恶化。
 
-- 在 肽段设计 中，同时优化：
-  - hemolysis，即溶血性，目标是降低；
-  - non-fouling，目标是提高；
-  - solubility，目标是提高；
-  - half-life，目标是延长；
-  - binding affinity，目标是提高。
-- 在 enhancer DNA 设计 中，同时控制：
-  - enhancer class；
-  - DNA shape，例如 HelT、Rise。
-- 在方法层面，问题是如何将 多目标优化 融入 离散生成模型 的逐步采样过程，而不是先把离散序列嵌入连续空间再优化。
-
-作者认为现有方法存在以下不足：
-
-1. 很多生物分子设计方法只优化单一目标，容易导致其他性质退化。
-2. 经典 多目标优化 方法如 NSGA-III、SPEA2、SMS-EMOA、MOPSO 可用于黑盒优化，但在高维序列空间中效率和生成质量受限。
-3. 一些基于 flow matching 的多目标方法，如 ParetoFlow，主要工作在连续空间；用于离散序列时通常需要连续嵌入，可能扭曲离散分布。
-4. 现有 Discrete Flow Matching 引导工作主要面向单目标任务，尚未充分支持多目标 Pareto 引导。
+论文关注的问题是：  
+**如何在离散生物序列空间中，利用预训练的离散生成模型进行多目标可控采样，使生成序列朝向 Pareto-efficient trade-offs，而不必把离散序列嵌入连续空间。**
 
 ## 背景与动机
 
-生物分子工程中的实际设计目标通常不是单一指标。例如：
+已有生物分子设计方法中，许多模型主要针对单一目标优化。单目标方法虽然能在特定指标上取得高分，但在真实药物或生物工程场景中往往不够可靠，因为多个性质之间存在明显 trade-off。
 
-- 治疗性蛋白或肽段需要兼顾高亲和力、低免疫原性和良好药代性质；
-- CRISPR guide RNA 需要高 on-target activity 和低 off-target effect；
-- 合成启动子需要高表达强度和组织特异性。
+经典多目标优化方法，如 evolutionary algorithms 和 Bayesian optimization，已用于分子库黑箱优化；近期也有将多目标优化嵌入生成模型采样过程的方法，例如 **ParetoFlow**。但 **ParetoFlow** 主要面向连续空间，若应用于离散序列通常需要连续嵌入，可能扭曲离散分布，也会增加基于性质引导的复杂性。
 
-单目标优化虽然能在某个指标上取得高分，但经常产生不理想的 trade-off。例如：
+**Discrete Flow Matching** 直接在离散状态空间中建模连续时间马尔可夫链，学习 token-level transition rates。相比 masked diffusion language model，这类模型具有更自然的 token-level velocity / transition-rate 表示，更适合在采样时对候选 token 转移进行重新加权与引导。
 
-- 高亲和力肽段可能溶解性差或毒性高；
-- 稳定化蛋白可能失去功能特异性。
-
-因此，作者希望构建一种可在生成过程中直接进行多目标控制的方法，使生成样本接近 Pareto-efficient 区域。
-
-本文选择 Discrete Flow Matching 作为基础模型，原因是：
-
-- 它直接在离散状态空间中建模序列分布；
-- jump-process 形式的 Discrete Flow Matching 具有 token-level transition rates，可自然地对每一步 token 转移进行重加权；
-- 相比连续 simplex 或连续 embedding 方法，它更少依赖可能扭曲离散分布的连续松弛。
+论文的动机是：  
+在不破坏离散空间结构的前提下，把多目标 Pareto 引导机制加入 **Discrete Flow Matching** 采样过程，从而实现可控生物序列设计。
 
 ## 核心思想
 
-MOG-DFM 的核心思想是：
+MOG-DFM 的核心思想是：  
+**不重新训练生成器，而是在预训练 Discrete Flow Matching 模型的采样过程中，根据多个性质评分函数对每一步 token 转移进行重新加权，并用自适应超锥过滤保证转移方向与指定 trade-off 向量一致。**
 
-> 在预训练 Discrete Flow Matching 生成器的每一步采样中，评估候选 token 替换对多个目标的局部改进，并结合用户指定的 trade-off 方向，对原始转移速率进行重加权；随后用自适应 hypercone 过滤掉与目标方向不一致的转移，从而推动序列逐步靠近 Pareto front。
+具体包括三部分：
 
-其关键组件包括：
+1. **权重向量指定 trade-off 方向**  
+   使用 **Das–Dennis simplex lattice** 生成覆盖 Pareto front 的权重向量，每次采样随机选取一个权重向量，代表本次生成希望偏向的多目标折中方向。
 
-1. **权重向量 ω**
-   - 表示多目标之间的 trade-off 偏好。
-   - 通过 **Das–Dennis simplex lattice** 在多目标 simplex 上生成多个方向。
-   - 每次生成随机选择一个 ω，以覆盖不同 Pareto 区域。
+2. **Rank-Directional Scoring**  
+   对每个候选 token 替换，计算：
+   - 各目标的局部改善排名分数；
+   - 多目标改善向量与权重向量的方向一致性；
+   - 将二者标准化后组合为候选转移的引导分数。
 
-2. **Hybrid rank-directional score**
-   - 同时考虑：
-     - 每个目标的局部改进 rank；
-     - 改进向量与 trade-off 权重向量 ω 的方向一致性。
-   - 用于重加权原始 Discrete Flow Matching 的 token transition velocity。
-
-3. **Adaptive hypercone filter**
-   - 只接受位于 ω 附近角锥内的候选转移。
-   - hypercone 角度根据 rejection rate 自适应调整：
-     - 拒绝过多则放宽；
-     - 拒绝过少则收窄。
-   - 目的是在探索和利用之间动态平衡。
-
-4. **Euler sampling for CTMC**
-   - 在经过多目标引导和 hypercone 过滤后，根据引导后的 CTMC transition rate 进行 Euler 采样。
+3. **Adaptive Hypercone Filtering**  
+   只接受改善方向位于权重向量附近超锥内的候选转移，并根据拒绝率动态调整超锥角度，在探索和利用之间平衡。
 
 ## 方法框架
 
-### 1. 基础模型：Discrete Flow Matching
+MOG-DFM 假设已有一个预训练的离散流匹配生成器，其定义了一个连续时间马尔可夫链，具有 factorized velocity field。另有若干预训练的 scalar score functions，用于评价序列在多个目标上的得分。
 
-论文设定离散序列：
+整体框架如下：
 
-$$
-x = (x_1, \dots, x_d), \quad x_i \in \mathcal{T} = [K]
-$$
+1. 从离散状态空间均匀采样初始序列。
+2. 生成一组覆盖 Pareto front 的权重向量，并随机选择一个权重向量。
+3. 在每个采样步：
+   - 随机选择一个 token 位置；
+   - 枚举该位置的候选 token 替换；
+   - 根据多目标分数变化计算候选转移分数；
+   - 对原始 DFM transition velocity 进行指数重加权；
+   - 用 adaptive hypercone filter 过滤方向不一致的转移；
+   - 通过 Euler sampling 更新 CTMC 状态。
+4. 经过固定采样步数后得到多目标优化后的序列。
 
-其中 $\mathcal{T}$ 是 vocabulary，例如氨基酸或 DNA 碱基。
+![[raw/zotero/images/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow/mineru-figure-01.jpg]]
 
-模型使用连续时间马尔可夫链 CTMC：
-
-$$
-\{X_t\}_{t \in [0,1]}
-$$
-
-用时间相关转移速率 $u_t(y,x)$ 将初始分布 $p_0$ 传输到目标数据分布 $p_1$。
-
-边际概率满足 Kolmogorov forward equation：
-
-$$
-\frac{d}{dt}p_t(y)=\sum_{x \in S}u_t(y,x)p_t(x)
-$$
-
-转移速率采用 factorized velocity：
-
-$$
-u_t(y,x)=\sum_i \delta(y_{\bar{i}},x_{\bar{i}})u^i_t(y_i,x)
-$$
-
-也就是说，每次只考虑某个位置的 token 转移。
-
-训练目标是学习 velocity field $u^\theta_t$。在 mixture path 参数化下，学习 velocity field 等价于学习边际 posterior：
-
-$$
-p^i_{1|t}(x^i_1|x)
-$$
-
-训练使用 generalized KL loss，该 loss 也可作为模型评估指标，并提供目标分布 likelihood 的 ELBO。
-
-### 2. MOG-DFM 的输入
-
-MOG-DFM 假设已有：
-
-- 一个预训练 Discrete Flow Matching 生成模型；
-- $N$ 个预训练 scalar score functions：
-
-$$
-s_n:S \to \mathbb{R}, \quad n=1,\dots,N
-$$
-
-这些 score functions 用于评价任意序列的多个目标性质。
-
-目标是生成序列 $x_1$，使其 score vector：
-
-$$
-(s_1(x_1),s_2(x_1),\dots,s_N(x_1))
-$$
-
-接近 Pareto front，但作者明确写道“不保证 Pareto optimal”。
-
-### 3. Rank-directional scoring
-
-对于当前位置 $i$，候选替换 token $y_i \neq x_i$，定义替换后的新序列 $x_{\text{new}}$。
-
-对于每个目标 $n$，计算局部改进：
-
-$$
-s_n(x_{\text{new}})-s_n(x)
-$$
-
-并转化为 rank-normalized improvement：
-
-$$
-I_n(y_i,x)=\frac{\text{rank}(s_n(x_{\text{new}})-s_n(x))}{|\mathcal{T}|}
-$$
-
-方向项定义为：
-
-$$
-D(y_i,x,\omega)=\Delta s(y_i,x)\cdot \omega
-$$
-
-其中 $\Delta s$ 是多目标改进向量，$\omega$ 是 trade-off 权重向量。
-
-最终综合分数为：
-
-$$
-\Delta S(y_i,x,\omega)
-=
-\text{Norm}\left[
-\frac{1}{N}\sum_{n=1}^{N} i_n I_n(y_i,x)
-\right]
-+
-\lambda \text{Norm}[D(y_i,x,\omega)]
-$$
-
-其中：
-
-- $I=[i_1,\dots,i_N]$ 是 importance vector；
-- $\lambda$ 控制方向项强度；
-- Norm 表示 z-score normalization。
-
-然后用该分数重加权原始 DFM velocity：
-
-$$
-u^i_{\text{guided},t}(y_i,x|\omega)
-=
-\beta u^i_t(y_i,x)\exp(\Delta S(y_i,x,\omega)),
-\quad y_i \neq x_i
-$$
-
-对于 $y_i=x_i$，通过负的 outgoing rate 保证 rate 条件成立。
-
-### 4. Adaptive hypercone filtering
-
-为保证候选转移方向与 trade-off 方向一致，计算候选改进向量与 $\omega$ 的夹角：
-
-$$
-\alpha_i=
-\arccos
-\left(
-\frac{\Delta s(y_i,x)\cdot \omega}
-{\|\Delta s(y_i,x)\|\|\omega\|}
-\right)
-$$
-
-只接受满足：
-
-$$
-\alpha_i \leq \Phi
-$$
-
-的候选 token，其中 $\Phi$ 是当前 hypercone angle。
-
-若接受集合 $Y_i$ 非空，则选择：
-
-$$
-y_i^{\text{best}}
-=
-\arg\max_{y_i \in Y_i}
-\Delta S(y_i,x,\omega)
-$$
-
-若没有候选落入 hypercone，论文描述了两个退化情况：
-
-1. 所有候选 $\alpha_i \geq \pi$：认为所有转移都降低性能，执行 self-transition。
-2. 存在 $\alpha_i < \pi$ 但不在当前 cone 内：选择最佳对齐候选继续推进。
-
-hypercone 角度根据 rejection rate 自适应更新：
-
-$$
-r_t=
-\frac{\#\{y_i:\alpha_i>\Phi\}}
-{\text{total candidate transitions}}
-$$
-
-计算 EMA：
-
-$$
-\bar{r}_t=\alpha_r\bar{r}_{t-h}+(1-\alpha_r)r_t
-$$
-
-更新角度：
-
-$$
-\Phi_{t+h}
-=
-\text{clip}
-\left(
-\Phi_t\exp(\eta(\bar{r}_t-\tau)),
-\Phi_{\min},\Phi_{\max}
-\right)
-$$
-
-其中：
-
-- $\tau$ 是目标 rejection rate；
-- $\eta$ 是更新学习率；
-- $\Phi_{\min}, \Phi_{\max}$ 限制角度范围。
-
-### 5. Euler sampling
-
-在得到 guided transition rate 后，计算当前坐标 $i$ 的 outgoing rate：
-
-$$
-R^i_t(x)
-=
-\sum_{y_i \neq x_i}
-u^i_{\text{guided},t}(y_i,x|\omega)
-$$
-
-CTMC Euler 采样概率为：
-
-$$
-P(X^i_{t+h}=x_i|X_t=x)
-=
-\exp(-hR^i_t(x))
-$$
-
-若发生跳转，则转到经过 hypercone filtering 选出的 best candidate。
+图 1 展示了 **MOG-DFM** 的算法可视化。它强调 MOG-DFM 并不是直接替换底层生成模型，而是在离散流匹配采样过程中加入多目标评分、方向引导和超锥过滤，从而把采样轨迹推向 Pareto-efficient 区域。
 
 ## 算法流程
 
-MOG-DFM 的整体流程如下：
+MOG-DFM 的采样流程可概括为以下步骤。
 
-1. 输入：
-   - 预训练 Discrete Flow Matching 模型；
-   - 多个目标的 score functions；
-   - 采样步数 $T$；
-   - hypercone 和引导相关超参数。
+### Step 0：初始化与权重向量生成
 
-2. 初始化：
-   - 从离散状态空间 $S$ 中均匀采样初始序列 $x_0$；
-   - 使用 **Das–Dennis simplex lattice** 生成覆盖 Pareto front 的权重向量集合；
-   - 随机选择一个权重向量 $\omega$。
+- 初始序列从离散状态空间均匀采样。
+- 通过 **Das–Dennis simplex lattice** 生成一组权重向量。
+- 每个权重向量表示一种多目标折中方向。
+- 每次生成随机选择一个权重向量，用于控制采样方向。
 
-3. 对 $t=0$ 到 $1$ 进行 $T$ 步采样：
-   - 随机选择一个序列位置 $i$；
-   - 对每个候选 token 替换：
-     - 计算每个目标的 rank-normalized improvement；
-     - 计算多目标改进向量与 $\omega$ 的 directional alignment；
-     - 合成 hybrid rank-directional score；
-     - 用该 score 重加权原始 DFM transition velocity。
-   - 计算候选转移与 $\omega$ 的角度；
-   - 用 adaptive hypercone filtering 筛选候选；
-   - 选择最佳候选；
-   - 根据 guided CTMC rate 进行 Euler 采样；
-   - 更新 hypercone angle。
+### Step 1：Guided Transition Scoring
 
-4. 输出最终序列 $x_1$。
+对当前序列中的一个随机位置，枚举所有可替换 token。对每个候选替换计算：
+
+- 局部改善：该 token 替换对每个目标分数的增量；
+- rank-normalized improvement：把不同目标的改善转为统一排名尺度；
+- directional alignment：多目标改善向量与权重向量的内积；
+- 综合得分：rank 分数与方向分数标准化后相加，并由超参数控制方向项强度。
+
+随后将综合得分用于重新加权原始 DFM transition rate：
+
+- 高分候选转移的 transition velocity 被放大；
+- 低分候选转移被压低；
+- 通过构造保证 CTMC rate 的非负性和零和条件仍然成立。
+
+### Step 2：Adaptive Hypercone Filtering
+
+对每个候选转移，计算其多目标改善向量与权重向量之间的夹角。若夹角小于当前超锥角，则认为该转移方向与目标 trade-off 方向一致。
+
+若超锥内没有候选转移，算法区分两种情况：
+
+- 所有候选都导致反向或无效改善：执行 self-transition；
+- 有候选朝向大致正确但超锥太窄：选择最接近方向的候选，并允许超锥角后续自适应调整。
+
+超锥角根据候选拒绝率的 EMA 动态更新：
+
+- 拒绝率过高：扩大超锥，增强探索；
+- 拒绝率过低：缩小超锥，增强方向一致性。
+
+### Step 3：Euler Sampling
+
+在得到 guided transition rates 和过滤后的候选转移后，使用 CTMC 的 Euler sampling 进行状态更新。每一步根据总 outgoing rate 决定是否发生 token 替换；若发生替换，则更新为选出的最佳候选 token。
+
+论文还给出一个证明草图：在超锥内候选转移方向与权重向量夹角小于阈值时，沿该权重方向的期望改善为正，因此采样过程会在期望意义上朝指定 Pareto trade-off 方向推进。
 
 ## 实验设置
 
-### 1. 任务设置
+论文构建了两个生物序列多目标生成 benchmark，因为作者认为当前没有公开数据集可直接作为生物序列多目标优化算法 benchmark。
 
-论文设计了两个 benchmark，因为作者指出目前没有公开数据集专门用于生物序列多目标优化算法评估。
+### 任务 1：肽结合物多目标设计
 
-#### 任务一：peptide binder generation
-
-目标：生成肽段 binder，同时优化五个治疗相关性质：
+目标是生成 peptide binders，同时优化五个治疗相关性质：
 
 - hemolysis，越低越好；
 - non-fouling，越高越好；
@@ -346,588 +144,309 @@ MOG-DFM 的整体流程如下：
 - half-life，越高越好；
 - binding affinity，越高越好。
 
-评估目标蛋白包括：
+作者训练了无条件肽生成模型 **PepDFM** 作为 MOG-DFM 的 base generator。
 
-- 有已知 binder 的结构化目标：
-  - 1B8Q
-  - 1E6I
-  - 3IDJ
-  - 5AZ8
-  - 7JVS
-- 无已知 binder 的结构化目标：
-  - AMHR2
-  - OX1R
-  - DUSP12
-- intrinsically disordered targets：
-  - EWS::FLI1
-  - MYC
+**PepDFM 数据来源：**
 
-每个目标通常生成 100 个 binder。
+- **PepNN**
+- **BioLip2**
+- **PPIRef**
 
-#### 任务二：enhancer DNA generation
+筛选长度为 6–49 aa 的肽序列，训练/验证/测试划分为 80/10/10。
 
-目标：生成 enhancer DNA，同时控制：
+**PepDFM 模型：**
 
-- enhancer class；
-- DNA shape。
-
-具体包括两个任务：
-
-1. Task 1：
-   - enhancer class 1；
-   - high HelT；
-   - class 1 与 ATF motif 相关。
-2. Task 2：
-   - enhancer class 16；
-   - high Rise。
-
-由于时间限制，每个设置生成 5 条长度为 100 的 enhancer DNA 序列。
-
-### 2. 基础生成模型
-
-#### PepDFM
-
-**PepDFM** 是用于肽段生成的 unconditional Discrete Flow Matching 模型。
-
-模型信息：
-
-- backbone：U-Net-style convolutional architecture；
-- 数据集：
-  - PepNN；
-  - BioLip2；
-  - PPIRef 中长度 6 到 49 的序列；
-- 数据划分：80/10/10 train/validation/test；
-- 训练结果：
-  - training loss：3.3134；
-  - validation loss：3.1051；
-- 使用 generalized KL loss 进行评估；
-- 生成结果用 Hamming distance 和 Shannon entropy 评估多样性和生物合理性。
-
-训练细节：
-
-- 训练设备：2xH100 NVIDIA NVL GPU，94 GB VRAM；
+- U-Net-style convolutional architecture；
+- sequence embedding 与 time embedding；
+- polynomial convex schedule；
 - 训练 200 epochs；
 - batch size 512；
-- Adam optimizer；
-- learning rate 1e-4；
-- 20 warm-up epochs + cosine decay；
-- embedding dimension 512；
-- hidden dimension 256；
-- 使用 dynamic batching。
+- Adam，learning rate 1e-4；
+- 最终 training loss 3.3134，validation loss 3.1051。
 
-#### EnhancerDFM
+### 任务 2：enhancer DNA 多目标设计
 
-**EnhancerDFM** 是用于 enhancer DNA 生成的 unconditional Discrete Flow Matching 模型。
+目标是设计 enhancer DNA 序列，同时控制：
 
-模型信息：
+- enhancer class；
+- DNA shape，例如 HelT 和 Rise。
 
-- backbone 与 PepDFM 相同；
-- 数据集来自 Stark et al. 的 enhancer DNA design 任务；
-- 数据包含 89k human melanoma enhancer sequences；
-- 每条序列长度 500；
-- 共 47 个 cell classes，标签由 ATAC-seq 数据确定；
-- 使用 Fréchet Biological Distance，即 FBD，进行评估。
+作者训练了 **EnhancerDFM** 作为无条件 enhancer DNA 生成模型。
 
-训练细节：
+**EnhancerDFM 数据来源：**
 
-- 训练设备：2xH100 NVIDIA NVL GPU，94 GB VRAM；
-- 训练 1500 epochs；
+- Stark et al. 使用的 melanoma enhancer dataset；
+- 约 89k human melanoma enhancer sequences；
+- 每条长度 500；
+- 包含 47 个由 ATAC-seq 数据确定的 cell class labels。
+
+**EnhancerDFM 模型：**
+
+- 与 PepDFM 相同的 U-Net-style 架构；
 - batch size 256；
-- Adam optimizer；
-- learning rate 1e-3；
-- 150 warm-up epochs + cosine decay；
-- embedding dimension 256；
-- hidden dimension 256。
+- 训练 1500 epochs；
+- Adam，learning rate 1e-3；
+- 评价指标使用 **Fréchet Biological Distance (FBD)**。
 
-### 3. 评分模型
+### 评分模型
 
-#### Hemolysis、non-fouling、solubility
+肽任务中，性质评分模型包括：
 
-- 数据来自 PepLand 和 PeptideBERT datasets；
-- 分别有：
-  - hemolysis：9,316 条；
-  - non-fouling：17,185 条；
-  - solubility：18,453 条；
-- 使用 ESM-2-650M mean pooled embedding；
-- 分类模型为 XGBoost boosted trees；
-- train/validation split：0.8/0.2；
-- 使用 OPTUNA 搜索超参数；
-- validation F1：
-  - hemolysis：0.58；
-  - non-fouling：0.71；
-  - solubility：0.68。
+- hemolysis、non-fouling、solubility：基于 ESM-2 embedding 的 XGBoost classifier；
+- binding affinity：使用 ESM-2 token-level embedding、CNN 与 cross-attention 的 transformer 模型；
+- half-life：先在稳定性数据上预训练，再在 half-life 数据上微调。
 
-#### Binding affinity
+DNA 任务中：
 
-- 数据量：1,781；
-- 使用 unpooled reciprocal attention transformer；
-- 输入为 ESM-2 650M token-level embeddings；
-- 结构包括 convolutional layers 和 cross-attention layers；
-- validation Spearman correlation：0.64。
+- DNA shape 使用 **Deep DNAshape**；
+- enhancer class predictor 来源于 Stark et al. 的 enhancer DNA design task。
 
-#### Half-life
+### 采样超参数
 
-- 数据来自：
-  - PEPLife；
-  - PepTherDia；
-  - THPdb2；
-- 只选择 human subjects，去除缺失和重复后共 105 条；
-- 由于数据较小，先在 stability dataset 上预训练，再在 half-life 数据上 fine-tune；
-- stability pre-training：
-  - validation Spearman：0.7915；
-  - $R^2$：0.6864。
-- half-life fine-tuning：
-  - 预测 $\log_{10}$ half-life；
-  - validation Spearman：0.8581；
-  - $R^2$：0.5977。
+肽结合物任务：
 
-### 4. MOG-DFM 采样超参数
+- num_div = 64；
+- λ = 1.0；
+- β = 1.0；
+- αr = 0.5；
+- τ = 0.3；
+- η = 1.0；
+- Φinit = 45°；
+- Φmin = 15°；
+- Φmax = 75°；
+- T = 100。
 
-#### Peptide binder generation
+DNA 任务：
 
-- num_div：64；
-- $\lambda=1.0$；
-- $\beta=1.0$；
-- $\alpha_r=0.5$；
-- $\tau=0.3$；
-- $\eta=1.0$；
-- $\Phi_{\text{init}}=45^\circ$；
-- $\Phi_{\min}=15^\circ$；
-- $\Phi_{\max}=75^\circ$；
-- total sampling step $T=100$。
+- 大部分超参数同肽任务；
+- T = 800。
 
-五属性 guidance 的 importance vector：
+![[raw/zotero/images/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow/mineru-figure-08.jpg]]
 
-$$
-[1,1,1,0.5,0.2]
-$$
-
-对应：
-
-- hemolysis；
-- non-fouling；
-- solubility；
-- half-life；
-- binding affinity。
-
-其中 hemolysis 被转换为 $1-h$，使所有目标都成为 maximization。
-
-half-life 的 log-scale 预测被 cap 到 2，即 100 小时，以防其主导优化。
-
-#### Enhancer DNA generation
-
-- 除采样步数外，其余超参数与 peptide binder task 相同；
-- total sampling step $T=800$。
-
-importance vector：
-
-- Task 1：[1, 10]，对应 enhancer class guidance 和 HelT guidance；
-- Task 2：[1, 100]，对应 enhancer class guidance 和 Rise guidance。
+图 3 展示了 **PepDFM** 生成肽与测试集肽之间的 Hamming distance 和 Shannon Entropy。结果用于说明无条件 base generator 既能生成与测试集有距离的新颖序列，又能保持接近真实肽分布的序列多样性与生物合理性。
 
 ## 主要结果
 
-### 1. PepDFM 能生成多样且生物合理的 peptide
+### 1. Base generator 的质量
 
-作者报告：
+**PepDFM** 在训练后获得较低 generalized KL loss，并且生成肽相对测试集具有较高 Hamming distance，同时 Shannon entropy 接近测试集，说明生成序列具有一定新颖性和生物合理性。
 
-- PepDFM 生成的 peptide 与 test set 的 Hamming distance 较高，说明生成样本具有较强 novelty；
-- 生成 peptide 的 Shannon entropy 接近 test set，说明生成序列具有生物合理性；
-- 具体图中数值需要结合 Figure 3 原图进一步读取，待补充原文/PDF 后确认。
+**EnhancerDFM** 在 enhancer DNA 无条件生成上使用 FBD 评价：
 
-### 2. EnhancerDFM 的 unconditional enhancer DNA 生成质量接近 Dirichlet FM
-
-在 10k 条 enhancer DNA 生成评估中：
-
-| Method | FBD | NFE | Training Epochs |
+| 方法 | FBD | NFE | 训练 epoch |
 |---|---:|---:|---:|
 | Random Sequence | 622.8 | - | - |
 | Dirichlet FM | 5.3 | 100 | 1400 |
 | EnhancerDFM | 5.9 | 100 | 20 |
 
-结果说明：
+EnhancerDFM 的 FBD 接近 Dirichlet FM，并远优于随机序列。论文还强调 EnhancerDFM 在较少训练 epoch 下达到较好 checkpoint，但原文中一句“best EnhancerDFM is obtained only in around 1400 training epochs”疑似笔误，应为 Dirichlet FM；待补充原文/PDF 后确认。
 
-- EnhancerDFM 的 FBD 明显低于 random sequence；
-- EnhancerDFM 与 Dirichlet FM 接近；
-- EnhancerDFM 达到最佳 checkpoint 所需 epoch 显著更少。
+### 2. 肽结合物五目标优化
 
-原文有一句“best EnhancerDFM model is achieved within 20 training epochs, while the best EnhancerDFM is obtained only in around 1400 training epochs”，应是将后者写成 Dirichlet FM 的笔误；待补充原文/PDF 后确认。
+MOG-DFM 在 10 个 diverse protein targets 上设计 peptide binders，包括：
 
-### 3. MOG-DFM 能平衡多目标 trade-off
+- 有已知 binders 的结构化靶标：1B8Q、1E6I、3IDJ、5AZ8、7JVS；
+- 无已知 binders 的结构化靶标：AMHR2、OX1R、DUSP12；
+- intrinsically disordered targets：EWS::FLI1、MYC。
 
-作者通过 ablation 验证每个 guidance signal 的作用。
+每个 target 生成 100 条 peptide binders。结果显示：
 
-#### 7LUL 三目标 ablation
+- hemolysis 约 0.06–0.09；
+- non-fouling > 0.78；
+- solubility > 0.74；
+- half-life 约 28–47 h；
+- affinity score 约 6.4–7.6，部分表格中 target 平均 affinity 低于 6.4，例如 1E6I 为 4.9621，具体统计口径待补充原文/PDF 后确认。
 
-目标：affinity、solubility、hemolysis。
+![[raw/zotero/images/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow/mineru-figure-02.jpg]]
 
-结果显示：
+图 2A/B 对比了 PDB 5AZ8 上 MOG-DFM 设计 binder 与已有 binder 的复合物结构，并展示五个性质分数、AlphaFold3 ipTM 和 AutoDock VINA docking score。该图用于说明 MOG-DFM 设计的序列在保持结合潜力的同时，可以在多个药物相关性质上取得更好的折中。
 
-- 去掉任一目标 guidance 后，对应性质会显著退化；
-- 只优化 affinity 会得到高 affinity，但 solubility 很低、hemolysis 较高；
-- 三个目标同时引导时更平衡。
+![[raw/zotero/images/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow/mineru-figure-03.jpg]]
 
-#### CLK1 三目标 ablation
+图 2 的另一部分展示了 MOG-DFM 设计 binder 的结构与性质得分。结合图注可知，这些面板用于比较设计 binder 与既有或无既有 binder 靶标上的结构互作与性质表现。
 
-目标：affinity、non-fouling、half-life。
+![[raw/zotero/images/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow/mineru-figure-04.jpg]]
 
-结果显示：
+图 2C/D 展示了 OX1R、EWS::FLI1 等无已知 binder 靶标与 MOG-DFM 设计 binder 的复合物结构。图中同时给出 ipTM、docking score 与五个性质分数，用于说明模型可用于没有预先已知 binder 的目标设计场景。
 
-- 去掉 non-fouling guidance 时，half-life 可超过 80 小时，但 non-fouling 接近很低；
-- 去掉 half-life guidance 时，non-fouling 较高，但 half-life 低于 2 小时；
-- 全部 guidance 同时启用时得到更均衡的属性组合。
+![[raw/zotero/images/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow/mineru-figure-05.jpg]]
 
-### 4. 五属性 peptide binder 设计结果
+图 2E 展示了 EWS::FLI1 长度 12 aa binder 设计过程中，五个性质随迭代次数变化的均值曲线。论文报告所有五个性质总体呈改善趋势，其中 solubility 和 non-fouling 从约 0.3 提升到约 0.8，说明采样过程确实被多目标引导逐步推向更优区域。
 
-MOG-DFM 在多个 target 和 binder length 上生成 100 个 binder 的平均结果表明：
+![[raw/zotero/images/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow/mineru-figure-06.jpg]]
 
-- hemolysis 通常在 0.06–0.09；
-- non-fouling 通常大于 0.78；
-- solubility 通常大于 0.74；
-- half-life 大约 28–47 小时；
-- affinity score 大约 6.4–7.6。
+图 2F 对比了 MOG-DFM 设计的 EWS::FLI1 12 aa binders 与 PepDFM 无条件生成肽的性质分布。MOG-DFM 将分布整体推向更优性质区域，说明多目标引导不仅改善个别样本，也改变了采样分布。
 
-部分代表结果：
+![[raw/zotero/images/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow/mineru-figure-07.jpg]]
 
-| Target | Binder Length | Hemolysis ↓ | Non-Fouling ↑ | Solubility ↑ | Half-Life ↑ | Affinity ↑ |
-|---|---:|---:|---:|---:|---:|---:|
-| AMHR2 | 8 | 0.0755 | 0.8352 | 0.8219 | 31.624 | 7.3789 |
-| AMHR2 | 12 | 0.0570 | 0.8419 | 0.8279 | 28.761 | 7.4274 |
-| EWS::FLI1 | 12 | 0.0616 | 0.8302 | 0.8130 | 34.225 | 6.3631 |
-| MYC | 8 | 0.0809 | 0.8135 | 0.8005 | 39.836 | 6.8488 |
-| OX1R | 10 | 0.0741 | 0.8115 | 0.7969 | 33.533 | 7.4162 |
-| 3IDJ | 7 | 0.0924 | 0.8246 | 0.7992 | 30.388 | 7.6304 |
-| 7JVS | 11 | 0.0628 | 0.8390 | 0.8206 | 32.834 | 6.9569 |
+图 2 的剩余面板进一步补充了结构可视化与性质分布结果。由于 MinerU 将 Figure 2 拆成多张图片且图注重复，具体每张子图对应的 panel 编号待补充原文/PDF 后确认。
 
-### 5. 与已有 binder 的比较
+### 3. 与传统多目标优化方法比较
 
-对有 pre-existing binder 的目标，作者用 MOG-DFM 设计 binder，并与已有 binder 比较。
-
-论文声称：
-
-- MOG-DFM-designed binders 在多个属性上显著优于已有 binders；
-- binding potential 未明显受损；
-- 通过 AlphaFold3 的 ipTM 和 AutoDock VINA docking score 进一步验证；
-- 设计 binder 与已有 binder 可能结合在类似 target positions，但序列和结构显著不同。
-
-具体结构图和数值见 Figure 2、Figure 4；由于当前摘取文本未包含所有图中具体数值，待补充原文/PDF 后确认。
-
-### 6. 采样过程中的性质改善
-
-以 EWS::FLI1 的 12-aa binder 设计为例：
-
-- 记录 100 个 binder 在每次 iteration 的五个属性均值和标准差；
-- 五个属性随迭代整体改善；
-- solubility 和 non-fouling 平均分数从约 0.3 提高到约 0.8；
-- hemolysis、non-fouling、solubility 的改善逐渐收敛；
-- half-life 最终方差较大，作者认为是因为 half-life 对 guidance 更敏感，需要与其他性质平衡。
-
-### 7. 外部 ADMET-AI 验证
-
-作者使用 ADMET-AI 作为外部评估工具，验证 MOG-DFM 设计 binder 的 solubility 和 half-life。
-
-结果：
-
-- 平均 LogS 大约在 -2.5 log mol·L⁻¹ 左右；
-- 高于常用 good solubility 阈值 -4；
-- half-life 估计通常大于 15 小时。
-
-部分结果：
-
-| Target | LogS | Half-Life |
-|---|---:|---:|
-| AMHR2 | -2.3931 | 15.505 |
-| EWS::FLI1 | -2.3869 | 18.945 |
-| OX1R | -2.4772 | 23.002 |
-| 1B8Q | -2.3203 | 18.7862 |
-| 3IDJ | -2.4193 | 20.3586 |
-| 7JVS | -2.4824 | 20.2565 |
-
-### 8. 与传统多目标优化算法比较
-
-比较方法：
+论文将 MOG-DFM 与四种多目标优化器比较：
 
 - MOPSO
 - NSGA-III
 - SMS-EMOA
 - SPEA2
-- MOG-DFM
 
-目标蛋白：
+在 1B8Q 与 PPP5 两个 target 上，每种方法生成 100 条 peptide binders。论文报告：
 
-- 1B8Q；
-- PPP5。
+- MOG-DFM 运行时间更长；
+- 但在 non-fouling、solubility、half-life 等性质上显著优于传统方法；
+- affinity 保持竞争性；
+- hemolysis 通常也较低。
 
-结果摘要：
+例如 1B8Q 上，MOG-DFM 的 non-fouling / solubility / half-life 分别为 0.8445 / 0.8455 / 27.227 h，而传统方法 half-life 多在 3–7 h 左右。
 
-- MOG-DFM runtime 更长；
-- 但在 non-fouling、solubility、half-life 上显著更优；
-- affinity 保持竞争性，但不一定所有 target 上都是最高；
-- hemolysis 相比部分方法更优，但也不是所有表格项都绝对最优。
+论文没有与 **ParetoFlow** 比较，理由是 ParetoFlow 需要 score models 接收连续输入，不适合当前离散序列任务。
 
-例如 1B8Q：
+### 4. 消融实验：多目标引导必要性
 
-| Method | Time (s) | Hemolysis ↓ | Non-Fouling | Solubility | Half-Life | Affinity |
-|---|---:|---:|---:|---:|---:|---:|
-| MOPSO | 8.54 | 0.1066 | 0.4763 | 0.4684 | 4.449 | 6.0594 |
-| NSGA-III | 33.13 | 0.0862 | 0.5715 | 0.5825 | 7.324 | 7.2178 |
-| SMS-EMOA | 8.21 | 0.1196 | 0.3450 | 0.3511 | 3.023 | 5.955 |
-| SPEA2 | 17.48 | 0.0819 | 0.4973 | 0.5057 | 4.126 | 7.324 |
-| MOG-DFM | 43.00 | 0.0785 | 0.8445 | 0.8455 | 27.227 | 5.9094 |
+在 7LUL 的 affinity、solubility、hemolysis 三目标任务中，去掉某个目标的 guidance 会导致对应性质退化。例如只优化 affinity 时 affinity 可升高，但 solubility 和 hemolysis 可能明显恶化。
 
-MOG-DFM 在 affinity 上低于 SPEA2 和 NSGA-III，但在 non-fouling、solubility、half-life 上明显更优，体现了多目标 trade-off。
+在 CLK1 的 affinity、non-fouling、half-life 三目标任务中：
 
-作者未与 ParetoFlow 比较，理由是 ParetoFlow 需要 score models 接受 continuous inputs，不适合本文离散序列任务。
+- 去掉 non-fouling guidance 时，half-life 可超过 80 h，但 non-fouling 接近低值；
+- 去掉 half-life guidance 时，non-fouling 可以较好，但 half-life 降到 2 h 以下；
+- 全部 guidance 打开时获得更平衡的 profile。
 
-### 9. Hyperparameter sensitivity
+这说明 MOG-DFM 的目标控制确实对应于所给 score functions，而不是单纯随机提升某些性质。
 
-作者测试了多个超参数，包括：
+### 5. Adaptive Hypercone Filtering 的作用
 
-- num_div；
-- $\beta$；
-- $\lambda$；
-- $\alpha_r$；
-- $\eta$；
-- $\Phi_{\text{init}}$；
-- $[\Phi_{\min}, \Phi_{\max}]$；
-- $\tau$；
-- sampling step $T$；
-- importance weights。
+论文在 3IDJ、4E-BP2、EWS::FLI1 上比较：
 
-主要结论：
-
-- 增加 sampling steps $T$ 通常提升所有指标，因为更细步长更接近连续时间 dynamics；
-- $\Phi_{\text{init}}$ 过小或过大都会变差：
-  - 过小限制探索；
-  - 过大削弱方向引导；
-- importance weights 对多目标平衡很关键；
-- $\beta,\lambda,\alpha_r,\eta,\tau,\Phi_{\min},\Phi_{\max}$ 的中等变化影响相对较小，说明 MOG-DFM 有一定鲁棒性。
-
-### 10. Adaptive hypercone filtering ablation
-
-在 3IDJ、4E-BP2、EWS::FLI1 上做 ablation：
-
-设置：
-
-- w/o filtering：完全关闭 hypercone filtering；
-- w/o adaptation：使用 hypercone 但不自适应角度；
-- MOG-DFM：完整方法。
+- w/o filtering；
+- w/o adaptation；
+- full MOG-DFM。
 
 结果显示：
 
-- 去掉 filtering 会导致 half-life 大幅下降；
-- 静态 hypercone 可恢复部分 half-life，但会牺牲 non-fouling 和 solubility；
-- 完整 MOG-DFM 能同时提高 half-life 并维持其他目标表现；
-- 在 disordered targets，如 4E-BP2 和 EWS::FLI1，上自适应 cone 尤其重要。
+- 完全去掉 hypercone filtering 会使 half-life 显著下降；
+- 使用静态 hypercone 可以恢复一部分 half-life，但可能牺牲 non-fouling 与 solubility；
+- 完整 MOG-DFM 能更好地平衡 half-life 与其他目标。
 
-代表结果：
+作者认为这说明自适应超锥机制对于在不规则、非凸 Pareto landscape 中保持方向一致性很重要，尤其是在 intrinsically disordered targets 上。
 
-| Target | Method | Hemolysis ↓ | Non-Fouling | Solubility | Half-Life | Affinity |
-|---|---|---:|---:|---:|---:|---:|
-| EWS::FLI1 | w/o filtering | 0.0450 | 0.8596 | 0.8570 | 4.40 | 6.1392 |
-| EWS::FLI1 | w/o adaptation | 0.0620 | 0.8444 | 0.8482 | 28.82 | 6.2118 |
-| EWS::FLI1 | MOG-DFM | 0.0616 | 0.8302 | 0.8130 | 34.225 | 6.3631 |
+### 6. enhancer DNA 多目标设计
 
-### 11. Enhancer DNA 多目标设计结果
+MOG-DFM 还用于 enhancer DNA 生成，目标包括 enhancer class 与 DNA shape。
 
-Task 1：
+两个任务：
 
-- 目标 enhancer class 1；
-- 目标 high HelT，最大 HelT 设置为 36。
+1. Task 1：目标 enhancer class 1，与较高 HelT；
+2. Task 2：目标 enhancer class 16，与较高 Rise。
 
-Task 2：
+每个设置设计 5 条长度 100 的 enhancer DNA。结果显示：
 
-- 目标 enhancer class 16；
-- 目标 high Rise，最大 Rise 设置为 3.7；
-- canonical Rise 范围约 3.3–3.4。
+- 同时使用 class 与 shape guidance 时，目标 class probability 和 shape value 同时较好；
+- 去掉其中一种 guidance，会导致对应性质下降；
+- 去掉两种 guidance 时，二者均表现较差。
 
-结果显示：
-
-- 同时使用 class guidance 和 shape guidance 时，MOG-DFM 能同时获得目标 enhancer class 的高概率和接近目标的 DNA shape；
-- 去掉其中一个 guidance，相应属性明显退化；
-- 去掉两个 guidance，class probability 和 shape 均较差。
-
-需要注意：Table 4 排版较混乱，部分列名与数值对应关系需要查阅原始 PDF 表格确认；待补充原文/PDF 后确认。
+这说明 MOG-DFM 不限于 peptide design，也能迁移到 DNA sequence design。
 
 ## 创新点
 
-1. **提出 MOG-DFM**
-   - 将 多目标优化 与 Discrete Flow Matching 的离散 CTMC 采样过程结合。
-   - 可用于引导任意预训练 DFM 生成器，前提是有多个 scalar score functions。
+1. **面向离散序列的多目标 guided flow matching**  
+   MOG-DFM 将 Pareto-style 多目标引导引入 **Discrete Flow Matching**，避免将离散序列嵌入连续空间。
 
-2. **直接在离散序列空间进行多目标引导**
-   - 不依赖连续 embedding 或连续 relaxation。
-   - 避免连续空间方法可能扭曲离散分布的问题。
+2. **Rank-Directional Scoring**  
+   同时利用局部 rank-normalized improvement 与全局 trade-off direction alignment，对候选 token 转移进行评分。
 
-3. **Hybrid rank-directional score**
-   - 将局部 rank-normalized improvement 与全局 trade-off direction alignment 结合。
-   - 同时兼顾局部探索和方向性利用。
+3. **Adaptive Hypercone Filtering**  
+   用动态超锥约束候选转移方向，拒绝与当前 trade-off 方向不一致的转移，并根据拒绝率调整超锥角度。
 
-4. **Adaptive hypercone filtering**
-   - 用动态角锥限制转移方向，强化沿 Pareto trade-off 方向的推进。
-   - 通过 rejection rate 自适应调整角度，平衡探索和利用。
+4. **可复用的生成器引导框架**  
+   MOG-DFM 可作用于任意预训练 discrete flow matching generator，只需提供多个 scalar score functions。
 
-5. **训练了两个 unconditional base models**
-   - **PepDFM**：用于多样 peptide generation；
-   - **EnhancerDFM**：用于 functional enhancer DNA generation。
-
-6. **跨序列类型验证**
-   - 在 peptide binder 和 enhancer DNA 两类生物序列任务上验证 MOG-DFM。
-
-7. **与传统多目标优化算法比较**
-   - 与 MOPSO、NSGA-III、SMS-EMOA、SPEA2 对比，并展示在多属性平衡上的优势。
+5. **同时覆盖 peptide 与 enhancer DNA**  
+   论文训练了 **PepDFM** 和 **EnhancerDFM**，并在两类生物序列任务上验证了方法的通用性。
 
 ## 局限性
 
-1. **不保证 Pareto optimal**
-   - 作者明确表示目标是生成 score vector 接近 Pareto front，不是保证 Pareto optimal。
+1. **Pareto 最优性不是严格保证**  
+   摘要与方法中明确写到目标是生成接近 Pareto front 的序列，not guaranteed to be Pareto optimal。
 
-2. **依赖预训练 score models**
-   - 多目标引导质量取决于各个性质预测器的准确性。
-   - hemolysis、non-fouling、solubility 的 F1 分数分别为 0.58、0.71、0.68，存在一定预测误差。
-   - half-life 数据仅 105 条，虽然使用预训练和微调，但数据规模仍小。
+2. **依赖评分模型质量**  
+   多目标引导完全依赖预训练 scalar score functions。若 score model 有偏差，生成结果可能优化了模型分数而不是真实实验性质。
 
-3. **实验主要基于预测指标**
-   - 肽段性质、binding affinity、half-life 等多数结果来自预测模型。
-   - 虽然使用了 ADMET-AI、AlphaFold3、AutoDock VINA 做辅助验证，但缺少湿实验验证；原文未报告实验室实验证据。
+3. **实验主要是计算验证**  
+   论文使用 AlphaFold3、AutoDock VINA、ADMET-AI 等外部工具进行辅助验证，但当前解析文本中未发现湿实验验证。
 
-4. **runtime 较长**
-   - 与传统多目标优化算法相比，MOG-DFM 生成单个 binder 的时间更长。
-   - 例如 1B8Q 上 MOG-DFM 为 43s，高于 MOPSO、SMS-EMOA、SPEA2，也高于 NSGA-III。
+4. **运行时间相对传统优化器更长**  
+   与 NSGA-III、SMS-EMOA、SPEA2、MOPSO 比较时，MOG-DFM 生成单条 binder 的时间更长。
 
-5. **长序列和高维输出仍待扩展**
-   - 结论中作者提到未来工作将扩展到 longer sequences 和 higher-dimensional outputs。
+5. **长序列与高维输出仍是未来方向**  
+   结论中提到未来会扩展到 longer sequences 和 higher-dimensional outputs，包括 text 和 image generation。
 
-6. **理论保证有限**
-   - 附录证明说明在 hypercone 条件下期望上沿 $\omega$ 方向有正改进。
-   - 但更强的 Pareto convergence guarantee 仍是未来方向。
-
-7. **DNA 设计实验样本数较小**
-   - enhancer DNA 每个设置仅生成 5 条序列，统计稳定性有限。
-
-8. **表格和文本存在可能笔误**
-   - EnhancerDFM 与 Dirichlet FM training epochs 的描述可能有笔误。
-   - Table 4 排版不清晰，需要原始 PDF 确认。
+6. **部分表述或数值存在需核对之处**  
+   例如 EnhancerDFM 与 Dirichlet FM 的训练 epoch 对比文字可能有笔误；部分 affinity 范围与表格数值略有不一致。待补充原文/PDF 后确认。
 
 ## 相关概念
 
-- [[多目标优化]]
-- [[Pareto front]]
-- [[Pareto optimality]]
-- [[Pareto-efficient solution]]
-- [[Discrete Flow Matching]]
-- [[Flow Matching]]
-- [[离散生成模型]]
-- [[连续时间马尔可夫链]]
-- [[CTMC]]
-- [[Kolmogorov forward equation]]
-- [[Factorized velocity field]]
-- [[Transition rate]]
-- [[Euler sampling]]
-- [[Bregman divergence]]
-- [[Generalized KL divergence]]
-- [[ELBO]]
-- [[Das–Dennis simplex lattice]]
-- [[Hypercone filtering]]
-- [[Adaptive hypercone]]
-- [[Rank-normalized improvement]]
-- [[Directional alignment]]
 - [[生物序列设计]]
-- [[肽段设计]]
-- [[Peptide binder design]]
-- [[Enhancer DNA design]]
-- [[DNA shape]]
-- [[HelT]]
-- [[Rise]]
-- [[Binding affinity]]
-- [[Solubility]]
-- [[Hemolysis]]
-- [[Non-fouling]]
-- [[Half-life]]
-- [[ADMET]]
-- [[AlphaFold3]]
-- [[AutoDock VINA]]
-- [[Fréchet Biological Distance]]
-- [[ESM-2]]
-- [[XGBoost]]
-- [[OPTUNA]]
-
+- [[可控生成]]
+- [[多目标优化]]
+- [[Pareto Front]]
+- [[连续时间马尔可夫链]]
+- [[DNA Shape]]
+- [[肽结合物设计]]
 ## 相关方法
 
-- [[MOG-DFM]]
-- [[PepDFM]]
-- [[EnhancerDFM]]
+- [[Multi-Objective-Guided Discrete Flow Matching]]
 - [[Discrete Flow Matching]]
-- [[Dirichlet Flow Matching]]
-- [[Gumbel-Softmax Flow Matching]]
-- [[ParetoFlow]]
-- [[PepTune]]
-- [[Masked Discrete Diffusion Language Model]]
-- [[MDLM]]
-- [[Monte Carlo Tree Search]]
+- [[Rank-Directional Scoring]]
+- [[Adaptive Hypercone Filtering]]
 - [[NSGA-III]]
+- [[MOPSO]]
 - [[SMS-EMOA]]
 - [[SPEA2]]
-- [[MOPSO]]
-- [[Bayesian optimization]]
-- [[Evolutionary algorithms]]
-- [[U-Net]]
-- [[Deep DNAshape]]
-- [[ADMET-AI]]
+## 相关数据集
 
+- [[肽结合物多目标设计]]
+- [[enhancer DNA 多目标设计]]
+- [[PepNN]]
+- [[BioLip2]]
+- [[PPIRef]]
+- [[melanoma enhancer dataset]]
+## 相关模型
+
+- [[ESM-2]]
+- [[AlphaFold3]]
 ## 相关论文
 
-- **Multi-Objective-Guided Discrete Flow Matching for Controllable Biological Sequence Design**  
-  - citekey: `chenMultiObjectiveGuidedDiscreteFlow`
-  - 本文。
-- **Discrete Flow Matching**  
-  - Gat et al., NeurIPS 2024。
-  - 本文基础生成框架。
-- **Dirichlet Flow Matching with applications to DNA sequence design**  
-  - Stark et al., ICML 2024。
-  - enhancer DNA 设计相关 baseline。
-- **Gumbel-Softmax Flow Matching with Straight-Through Guidance for Controllable Biological Sequence Generation**  
-  - Tang et al., 2025。
-  - 离散可控生成相关方法。
-- **Unlocking Guidance for Discrete State-Space Diffusion and Flow Models**  
-  - Nisonoff et al., ICLR 2025。
-  - 离散 diffusion/flow guidance 相关。
-- **ParetoFlow: Guided Flows in Multi-Objective Optimization**  
-  - Yuan et al., 2024。
-  - 连续空间 flow matching 多目标优化方法。
-- **PepTune: De novo generation of therapeutic peptides with multi-objective-guided discrete diffusion**  
-  - Tang, Zhang, Chatterjee, ICML 2025。
-  - 同一实验室的多目标肽段生成相关工作。
-- **Simple and Effective Masked Diffusion Language Models**  
-  - Sahoo et al., NeurIPS 2024。
-  - PepTune 相关 MDLM 基础。
-- **Accurate structure prediction of biomolecular interactions with AlphaFold 3**  
-  - Abramson et al., Nature 2024。
-  - 用于结构和 ipTM 评估。
-- **AutoDock VINA**  
-  - Trott and Olson, 2010。
-  - 用于 docking score 评估。
-- **ADMET-AI**  
-  - Swanson et al., Bioinformatics 2024。
-  - 用于外部 ADMET 评估。
-- **Predicting DNA structure using a deep learning method**  
-  - Li, Chiu, Rohs, Nature Communications 2024。
-  - Deep DNAshape 相关。
+- [[Discrete Flow Matching]]
+- [[ParetoFlow]]
+- [[Dirichlet Flow Matching with Applications to DNA Sequence Design]]
+- [[PepTune]]
+- [[Gumbel-Softmax Flow Matching]]
+- [[Unlocking Guidance for Discrete State-Space Diffusion and Flow Models]]
 
 ## 源文件
 
-- citekey: `chenMultiObjectiveGuidedDiscreteFlow`
-- title: **Multi-Objective-Guided Discrete Flow Matching for Controllable Biological Sequence Design**
-- authors: Tong Chen, Yinuo Zhang, Sophia Tang, Pranam Chatterjee
-- year: 待补充原文/PDF 后确认
-- venue: 待补充原文/PDF 后确认
-- DOI: 待补充原文/PDF 后确认
-- arXiv: `arXiv:2505.07086v2 [cs.LG] 14 May 2025`
-- collections: 多目标分子优化
-- code/materials: `https://huggingface.co/ChatterjeeLab/MOG-DFM`
+- Zotero citekey：`chenMultiObjectiveGuidedDiscreteFlow`
+- 标题：**Multi-Objective-Guided Discrete Flow Matching for Controllable Biological Sequence Design**
+- 作者：Tong Chen, Yinuo Zhang, Sophia Tang, Pranam Chatterjee
+- 年份：待补充原文/PDF 后确认
+- Venue：待补充原文/PDF 后确认
+- DOI：待补充原文/PDF 后确认
+- Collection：多目标分子优化
+- 正文来源：MinerU full.md
 
-## 图表摘录
+## 代码与数据
 
-![[raw/zotero/images/多目标分子优化/面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow/page-001.png]]
+### 代码
+
+未在当前解析文本中发现明确代码仓库。
+
+### 数据集 / Benchmark
+
+- https://huggingface.co/ChatterjeeLab/MOG-DFM
+
+### 其他链接
+
+未在当前解析文本中发现其他外部资源链接。
 
 ## Zotero 原始摘要
 
@@ -943,44 +462,18 @@ Designing biological sequences that satisfy multiple, often conflicting, functio
 
 ## 我的理解
 
-这篇论文的价值在于把 多目标优化 直接嵌入到 Discrete Flow Matching 的 token-level transition dynamics 中，而不是把序列先变成连续向量再做多目标控制。
+这篇论文的关键价值在于，它把“多目标优化”从后处理或外部搜索，移到了 **Discrete Flow Matching** 的采样动力学内部。它不是简单对最终样本打分筛选，而是在每个 token 替换步骤中，根据多目标改善方向调整 transition rate。
 
-我理解 MOG-DFM 的“可控性”主要来自三个层次：
+我认为 MOG-DFM 最值得关注的是 **directional consistency** 这个设计。多目标优化中，仅仅让每个局部转移“看起来有改善”不一定能带来整体 Pareto-efficient 解，因为不同目标的改善可能相互抵消。MOG-DFM 用权重向量指定 trade-off 方向，再用 hypercone 限制转移方向，相当于给离散采样轨迹加了一个局部几何约束。
 
-1. **方向控制**
-   - 权重向量 $\omega$ 决定这次生成要探索 Pareto front 的哪个区域。
-   - 不同 $\omega$ 对应不同属性 trade-off。
-
-2. **局部候选重排**
-   - 每个 token 替换都会被多个 score models 评价。
-   - rank score 解决不同目标数值尺度不同的问题；
-   - directional score 保证整体改进方向和 $\omega$ 一致。
-
-3. **几何过滤**
-   - hypercone filter 相当于在 score space 中限制“走路方向”。
-   - 不是所有局部高分转移都允许，必须与整体多目标方向一致。
-   - 自适应角度则避免过度保守或过度发散。
-
-从生成建模角度看，MOG-DFM 不是重新训练条件生成模型，而是在采样时对 pretrained unconditional DFM 进行 guidance。因此它比较灵活，只要有 score functions，就能迁移到不同性质组合上。
-
-从生物设计角度看，这种方法的瓶颈主要在 score models。若 score models 不可靠，生成结果可能只是“优化了预测器”，而不一定优化真实实验性质。论文用 ADMET-AI、AlphaFold3、AutoDock VINA 做了交叉验证，但最终仍需要实验验证。
-
-这篇论文也提示了一个重要方向：对于离散生物序列，Discrete Flow Matching 的 jump-process 形式可能比连续 simplex 方法更适合做逐 token 可控生成，因为 transition rate 可以被性质分数自然重加权。
+不过，MOG-DFM 的有效性高度依赖 score models。如果评分模型本身不可靠，或者被生成模型 exploit，那么“多目标优化”可能只是优化预测器而非真实生物性质。因此这类方法后续最关键的验证应该是实验闭环或 uncertainty-aware guidance。
 
 ## 后续问题
 
-1. MOG-DFM 在真实湿实验中生成的 peptide binder 是否仍能保持低溶血、高溶解性和强结合？
-2. score model 的误差如何影响 Pareto front 估计？是否会出现 reward hacking？
-3. 是否可以引入 uncertainty-aware guidance，降低对不确定预测区域的过度优化？
-4. 对长蛋白序列、抗体 CDR、RNA 序列等更长或结构约束更强的生物序列，MOG-DFM 是否仍稳定？
-5. adaptive hypercone filtering 是否可以有更强的 Pareto convergence guarantee？
-6. 当前每步只随机更新一个 position，是否可以扩展到 block update 或 learned proposal？
-7. importance vector 目前依赖属性范围手动设定，能否自动学习或动态调整？
-8. 多个 score functions 的计算成本较高时，是否可以用 surrogate 或 caching 加速？
-9. MOG-DFM 与 classifier guidance、classifier-free guidance 在离散流模型中的关系能否统一？
-10. enhancer DNA 实验每个设置只生成 5 条序列，扩大样本规模后结果是否仍稳定？
-11. 能否将用户偏好从固定 $\omega$ 扩展为交互式 feedback-guided generation？
-12. 对非凸、不连续 Pareto front，adaptive hypercone 是否总能避免陷入局部区域？
-13. 是否可以将 docking、folding 或结构约束直接纳入采样环，而不是事后评估？
-14. 与 PepTune 相比，MOG-DFM 在同等预算下的 Pareto hypervolume、diversity 和 novelty 如何？
-15. 如果多个目标之间高度冲突，MOG-DFM 的生成多样性和收敛性会如何变化？
+1. MOG-DFM 在真实湿实验中设计的 peptide binder 是否仍能保持低 hemolysis、高 solubility 和高 affinity？
+2. Adaptive Hypercone Filtering 是否可以给出更严格的 Pareto convergence guarantee？
+3. 如果多个 score models 的不确定性差异很大，如何在 rank-directional score 中引入 uncertainty？
+4. MOG-DFM 对更长蛋白序列、RNA 序列或 full-length regulatory sequence 是否仍然有效？
+5. 权重向量随机采样是否足以覆盖 Pareto front？是否需要主动选择未覆盖区域？
+6. 若目标之间强冲突，超锥过滤是否会导致过多 self-transition 或采样停滞？
+7. MOG-DFM 是否能与实验反馈或 active learning 结合，形成闭环多目标分子设计流程？

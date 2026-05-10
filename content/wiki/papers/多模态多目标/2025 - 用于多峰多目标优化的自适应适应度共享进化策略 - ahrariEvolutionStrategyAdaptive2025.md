@@ -79,6 +79,20 @@ original_title: "An Evolution Strategy With Adaptive Fitness Sharing for Multimo
 
 - 源 PDF
 
+## 代码与数据
+
+### 代码
+
+未在当前解析文本中发现明确代码仓库。
+
+### 数据集 / Benchmark
+
+未在当前解析文本中发现明确数据集或 benchmark 链接。
+
+### 其他链接
+
+未在当前解析文本中发现其他外部资源链接。
+
 ## Zotero 原始摘要
 
 Unlike multiobjective optimization (MOO), multimodal multiobjective optimization (MMMOO) should approximate the entire Pareto set, even if a portion of it maps onto the entire Pareto front. This study introduces a novel evolution strategy with adaptive fitness sharing (AFS) for MMMOO. The method, called, AFS-MMMO-ES, calculates an overall fitness for each solution in the selection pool based on its rank-wise hypervolume contribution, Pareto rank, and niche count in the decision space. Since the optimal niche radius is problemdependent, this study introduces a novel strategy for on-thefly adaptation of the niche radius. Simulations on meticulously designed test problems are performed to confirm the efficacy and reliability of this strategy in learning the optimal niche radius, as well as its significant impact on enhancing robustness and performance. Furthermore, AFS-MMMO-ES can easily reflect the relative importance of decision space diversity based on the decision-maker’s preference, a practically important feature that has been overlooked in this research field. Finally, the performance of AFS-MMMO-ES is assessed and compared with several successful MMMOO methods on a widely accepted test suite for MMMOO. Comparisons of numerical results reveal the robustness and superiority of AFS-MMMO-ES over its competitors.

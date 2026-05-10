@@ -3,27 +3,38 @@ type: "method"
 status: "enriched"
 category: "优化方法"
 domain: "多目标分子优化"
+background: "included"
 ---
 # MOMO
 
-## 定义
+## 标准定义
 
-MOMO（[[分子隐空间优化|Molecule optimization via multi-objective evolutionary in implicit chemical space]]）是一种将预训练 [[encoder-decoder]] 学到的[[连续分子表示|连续隐式化学空间]]与[[Pareto-based evolutionary search|多目标进化搜索]]结合的[[分子优化]]方法。它不把多个目标简单加权成单目标，而是基于 [[Pareto dominance]] 直接搜索一组在性质与相似性之间具有不同权衡的候选分子。方法在[[隐式化学空间|隐空间]]中进行选择、[[crossover|交叉]]和变异，再解码回分子并评估 [[QED]]、[[PlogP]]、[[DRD2]] 和相似性等目标。实验表明它在若干二目标和三目标任务上优于多种基线。
+MOMO（Multi-objective Molecule Optimization / Evolutionary Multi-objective Molecule Optimization）可泛指一类用于[[分子优化]]的 [[多目标优化]] 方法：在给定先导分子或候选分子时，同时优化多个性质目标，并通过 [[Pareto Front|Pareto前沿]]、[[非支配排序]]等机制保留一组具有不同权衡偏好的解，而不是把多个目标简单合成为单一标量目标。此类方法常结合 [[Evolutionary Algorithm|进化算法]]、连续[[潜在空间|潜空间]]搜索或生成模型，以提升搜索效率和结果多样性。
+
+## 在本知识库中的用法
+
+在本知识库中，MOMO 特指 2023 年论文提出的进化式多目标分子优化框架：先用预训练的 [[编码器-解码器]]（文中为 [[cddd]]）构造 [[隐式化学空间]]，再把 lead molecule 编码后的 latent vector 作为种群个体，在 [[潜在空间|latent space]] 中执行 selection、crossover、mutation 和基于 Gaussian noise 的初始化；随后将候选解码回分子，在分子层面对 [[QED]]、[[PlogP]]、DRD2、Similarity 等目标进行评价，并用 non-domination rank、reference point mechanism 与 dynamic acceptance probability 进行种群更新，最终输出位于 Pareto-front 上的一组优化分子。
 
 ## 关键点
 
-- 将分子优化明确建模为[[多目标优化]]问题，而不是单目标加权优化。
-- 在预训练 encoder-decoder 构建的连续[[隐式化学空间]]中进行进化搜索，实验中使用了 [[深度生成模型|cddd]] 模型。
-- 进化操作包括 selection、[[crossover]] 和 [[mutation]]，候选向量再解码为分子进行性质评估。
-- 采用 Pareto dominance、non-domination rank、[[Reference point mechanism|reference point]] mechanism 和动态接受概率维护搜索质量。
-- 支持在多个目标之间寻找不同偏好的解，尤其适用于 QED、P[[logP]]、DRD2 与 [[Tanimoto similarity|Similarity]] 的联合优化。
-- 作者指出其局限包括编码/解码耗时，以及对更多目标和多样性的进一步验证不足。
+- 核心目标不是单点最优，而是得到一组位于 [[Pareto Front|Pareto前沿]] 上、对应不同权衡偏好的候选分子。
+- 方法把搜索放在连续的 [[隐式化学空间]] 中进行，以减少在离散 [[SMILES]]/图空间直接交叉和变异带来的无效分子问题。
+- 进化操作发生在 latent vector 上，但属性评价在解码后的分子层面完成，兼顾搜索平滑性与化学属性可解释性。
+- 与[[Linear Scalarization|加权求和]]式多目标处理不同，MOMO 将 QED、PlogP、DRD2、Similarity 作为独立目标处理。
+- 本知识库中的 MOMO 重点用于 [[分子优化|lead optimization]] 场景，强调同时提升性质、活性和结构相似性。
 
 ## 别名
 
-- Multi-Objective Molecule Optimization
-- Molecule optimization via multi-objective evolutionary in implicit chemical space
-- multi-objective molecule optimization framework
+- Evolutionary multi-objective molecule optimization
+- MOMO
+- 多目标分子进化优化
+
+## 外部背景
+
+- 多目标优化通常关注在多个互相冲突的目标之间寻找一组非支配解，而不是单一最优解。
+- 进化算法在多目标优化中常用种群、变异、交叉和选择机制来逐步逼近 Pareto-front。
+- 分子潜空间搜索通常依赖预训练生成模型或编码器-解码器，将离散分子映射到连续向量空间后再进行优化。
+- 参考点选择、拥挤度控制或自适应接受概率等机制常用于提升多目标搜索中的解多样性与分布均匀性，待核对经典来源。
 
 ## 相关论文
 

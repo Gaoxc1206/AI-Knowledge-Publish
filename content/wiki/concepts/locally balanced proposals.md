@@ -2,39 +2,40 @@
 type: "concept"
 status: "enriched"
 category: "理论概念"
-domain: "离散生物序列多目标优化"
+domain: "离散采样与多目标引导生成"
 background: "included"
 ---
-# locally balanced proposals
+# Locally Balanced Proposals
 
 ## 标准定义
 
-Locally balanced proposals（局部平衡提议）是 [[Markov chain Monte Carlo]] 中的一类局部提议机制：在离散邻域内生成候选状态时，不只依赖基础提议概率，还会乘上反映目标分布局部偏好的权重，并通过满足 g(u)=u g(1/u) 的 balancing function 维持平衡性。它通常与 [[Metropolis-Hastings]] 结合，用于在离散空间中提高接受率、改善混合效率，并更有效地探索高概率区域。
+Locally Balanced Proposals（局部平衡提议）是一类用于[[Metropolis-Hastings]]或其他[[Markov chain Monte Carlo]]方法的提议机制，常见于[[离散空间]]中的采样问题。其核心思想是：在当前状态附近的候选点之间，依据目标分布密度比构造提议概率，使“更符合目标分布”的邻域状态被更容易提出，从而提高接受率并改善混合效率。常见实现会利用目标分布比值或其单调变换来定义局部邻域上的提议核。
 
 ## 在本知识库中的用法
 
-在 [[AReUReDi]] 中，locally balanced proposals 用于单个 token 的替换式更新：先用预训练的 [[Rectified Discrete Flows]] 提供位置级转移先验，再结合由 [[Tchebycheff scalarization]] 构造的 annealed reward ratio 调整候选 token 的 proposal 概率，最后通过 [[Metropolis-Hastings]] 接受/拒绝。其作用是把多目标引导直接嵌入离散序列采样，使样本逐步逼近 [[Pareto front]] 附近的高质量区域。
+在 [[AReUReDi]] 中，locally balanced proposals 用来为离散序列的单点突变构造候选提议：先结合 ReDi 的 token 生成概率与多目标奖励比值，再在局部邻域内选择更有利于 Pareto 改进的候选 token，并交给 annealed [[Metropolis-Hastings]] update 接受或拒绝。它在这里是把离散流先验与多目标指导信号衔接起来的关键步骤，服务于将肽序列和 peptide [[SMILES]] 采样推向 Pareto front。
 
 ## 关键点
 
-- 本质上是面向离散状态空间的局部提议机制，常见于 token 替换、单点翻转等邻域更新，而不是[[连续隐空间|连续潜空间]]扰动。
-- 核心是 balancing function g(u)=u g(1/u)，用来把基础提议与局部目标偏好结合起来。
-- 与 [[Metropolis-Hastings]] 配合时，可保持目标分布的不变性，并常用于提升采样接受率与 mixing。
-- 在本知识库论文中，它承接 [[Rectified Discrete Flows]] 的 token 级生成先验，并把多目标 reward 注入 proposal 阶段。
-- 它使采样过程从单纯生成变为“局部搜索 + 随机采样”的混合式[[多目标优化]]过程。
+- 它面向的是[[离散空间]]中的采样，而不是连续变量优化。
+- 局部平衡的目标是让提议分布与目标分布的局部结构相协调，从而提升 MH 接受率和采样效率。
+- 在本知识库的上下文里，它与 ReDi 的 token-level transition probabilities 结合，用于单位置编辑式的序列更新。
+- AReUReDi 中的用法强调多目标 reward ratio：提议不仅看生成先验，还看多属性 scalarized reward。
+- 它不是最终优化目标本身，而是实现[[多目标引导]]采样的提议机制。
 
 ## 别名
 
-- local balanced proposals
-- locally balanced proposal
 - 局部平衡提议
-- LBP
+- locally balanced proposal
+- balanced proposal
+- local balance proposal
 
 ## 外部背景
 
-- 局部平衡提议常见于离散随机游走和可逆 [[MCMC]]；经典变体包括 Barker 型和 square-root 型 balancing function。
-- 在高维离散空间中，相比直接对目标分布做全局提议，局部平衡方法通常更容易实现，也更便于控制接受率与计算开销。
-- 它与 [[Metropolis-Hastings]] 的关系是：在 proposal 设计阶段就尽量满足局部对称/平衡条件，从而简化接受概率或提升采样效率。
+- 常见于离散 MCMC、组合优化和图结构采样等场景，特别适合邻域结构明确的问题。
+- 与传统随机游走式提议相比，locally balanced proposals 往往能更好地利用目标分布信息，减少无效移动。
+- 在一些文献中，它也被视为一种“用目标分布比值来设计提议核”的通用思路，待核对经典来源。
+- 相关变体可能与 locally informed proposals、balanced proposals 等术语相近，但具体定义需区分实现细节，待核对经典来源。
 
 ## 相关论文
 

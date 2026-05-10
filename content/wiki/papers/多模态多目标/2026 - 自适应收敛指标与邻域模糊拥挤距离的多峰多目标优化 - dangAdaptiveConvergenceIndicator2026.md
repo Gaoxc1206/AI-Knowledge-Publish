@@ -280,7 +280,7 @@ ACEA-NFCD 在四个 benchmark suites 上整体表现最好，且在三个指标�
 ## 相关概念
 
 - [[多模态多目标优化]]
-- [[Pareto前沿]]
+- [[Pareto Front|Pareto前沿]]
 - [[Pareto最优解集]]
 - [[局部Pareto前沿]]
 - [[非支配排序]]
@@ -301,14 +301,14 @@ ACEA-NFCD 在四个 benchmark suites 上整体表现最好，且在三个指标�
 - [[MO_Ring_PSO_SCD]]
 - [[MMODE_CSCD]]
 - [[HREA]]
-- [[CMMO]]
+- [[多模态多目标优化|CMMO]]
 - [[CoMMEA]]
 - [[FPITSEA]]
 - [[CDP-BCD]]
-- [[双档案与重组策略]]
+- [[双档案协同进化|双档案与重组策略]]
 - [[局部收敛指标]]
 - [[特殊拥挤距离]]
-- [[CSCD]]
+- [[MMODE_CSCD|CSCD]]
 - [[Fuzzy preference indicator]]
 
 ## 相关论文
@@ -330,6 +330,20 @@ ACEA-NFCD 在四个 benchmark suites 上整体表现最好，且在三个指标�
 - 期刊：IEEE Transactions on Emerging Topics in Computational Intelligence
 - 来源：IEEE PDF 文本摘取（第 1–16 页）
 - 文档状态：已接收，接受日期 2026-03-26，页内显示为 final content
+
+## 代码与数据
+
+### 代码
+
+未在当前解析文本中发现明确代码仓库。
+
+### 数据集 / Benchmark
+
+未在当前解析文本中发现明确数据集或 benchmark 链接。
+
+### 其他链接
+
+未在当前解析文本中发现其他外部资源链接。
 
 ## Zotero 原始摘要
 

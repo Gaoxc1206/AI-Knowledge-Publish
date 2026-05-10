@@ -2,40 +2,40 @@
 type: "concept"
 status: "enriched"
 category: "理论概念"
-domain: "多目标分子设计"
+domain: "多目标分子生成与强化学习"
 background: "included"
 ---
-# goal-conditioned reinforcement learning
+# Goal-conditioned Reinforcement Learning
 
 ## 标准定义
 
-Goal-conditioned [[强化学习|reinforcement learning]]（目标条件[[强化学习]]）是指：在强化学习中将“目标”作为显式条件输入策略或价值函数，使智能体学习在给定目标 g 时采取动作、到达目标状态或实现目标回报。常见形式是学习条件策略 π(a|s,g) 或条件价值函数 Q(s,a,g)。它通常用于目标可变、目标稀疏或需要[[controllable generation|可控生成]]/控制的任务，并常与 [[reward shaping]]、目标重标记等技巧结合，以缓解[[reward sparsity|稀疏奖励]]问题。
+Goal-conditioned Reinforcement Learning（目标条件强化学习）是指把“目标”作为条件输入到策略、价值函数或轨迹生成器中，使模型学习在给定目标 g 时产生能达成该目标的行为。目标可以是期望状态、子任务、奖励阈值、区间或目标区域；在稀疏奖励场景中，常与 [[Hindsight Experience Replay]]、[[Replay Buffer]] 等机制结合，以提升可达性与泛化能力。
 
 ## 在本知识库中的用法
 
-在该论文中，[[goal-conditioning|goal-conditioned]] reinforcement learning 的思想被迁移到 [[GFlowNet]]：模型不再只接收偏好权重，而是显式接收目标方向 d_g，把[[目标空间]]中的一个区域作为条件来控制生成。这里的“goal”不是环境状态，而是多目标性质空间中的 [[focus region]]；只有落入该区域的分子才获得正奖励。作者还结合了 [[replay buffer]] 和 [[hindsight experience replay]]，以及面向不可行目标的 [[Tab-GS]] 采样策略，以提升在复杂 [[Pareto front]] 上的可控性与覆盖均匀性。
+在本知识库对应论文中，该概念特指把多目标分子设计中的目标区域（focus region）直接作为条件输入，而不是使用偏好权重向量做标量化。模型被要求生成奖励向量落入指定目标区域的分子，并通过 replay buffer、hindsight experience replay 和目标采样策略来缓解硬约束导致的稀疏奖励与不可行目标采样问题。
 
 ## 关键点
 
-- 核心是把目标 g 显式输入策略/生成器，使同一模型能在不同目标下执行不同控制行为，适合 [[multi-objective optimization]] 与可控生成任务。
-- 与 [[preference conditioning]] 相比，[[goal-conditioning|目标条件化]]强调“要到哪里”，而不是“更偏好什么”；在本文中这被用来直接指定目标空间中的 focus region。
-- 论文将该思想用于 [[GFlowNet]]，通过目标方向 d_g 和区域阈值定义可达区域，并用区域内/外二值奖励约束采样分布。
-- 由于硬约束会带来稀疏奖励，训练中借助 [[hindsight experience replay]] 和 [[replay buffer]] 缓解样本稀缺与学习不稳定。
-- 该设定的目标是更均匀地覆盖 [[Pareto front]]，尤其是在凹形或多峰目标空间中避免只偏向极端点。
+- 标准定义上，goal-conditioned RL 的核心是“给定目标、再学习行为”，适用于需要按需达到特定结果的任务，而不只是最大化单一奖励。
+- 在这篇论文里，目标不再是偏好权重，而是[[目标空间]]中的 [[Pareto front]] 局部区域；这让模型可以显式控制生成结果落在哪一段目标折中解上。
+- 与 preference-conditioned 方法相比，目标条件化更适合凹形或复杂的多目标折中结构，因为它避免了线性标量化对中间区域覆盖不足的问题。
+- 论文把 goal-conditioned 训练与 [[Hindsight Experience Replay]]、replay buffer 结合，用来缓解 hard constraint 下大量样本奖励为 0 的训练困难。
+- 该用法强调“可控覆盖”而非单纯“高分最优”，目标是让生成分布在目标空间中更均匀，并提高不同目标数下的可达性与稳定性。
 
 ## 别名
 
+- 目标条件强化学习
 - goal-conditioned RL
 - GCRL
-- 目标条件强化学习
-- 目标条件RL
+- goal conditioned reinforcement learning
 
 ## 外部背景
 
-- 经典目标条件强化学习通常写作学习 π(a|s,g) 或 Q(s,a,g)，其中 g 可以是目标状态、目标图像或目标回报；待核对经典来源。
-- 在稀疏奖励任务中，目标重标记（goal relabeling）与 [[hindsight experience replay]] 常被用于提升[[sample efficiency|样本效率]]；待核对经典来源。
-- 目标条件方法与层级强化学习、技能条件生成模型等方向常有交叉，但侧重点不同：前者强调“达成指定目标”，后者强调“学习可复用的控制/生成能力”；待核对经典来源。
-- 在多目标优化中，目标条件化可被看作比标量化更显式的控制方式，因为它直接面向目标空间中的区域而非单一加权标量；待核对经典来源。
+- 在经典强化学习语境中，goal-conditioned 方法通常用于导航、机械臂控制、技能学习等任务；待核对经典来源。
+- 目标条件化常与通用值函数近似（UVFA）或层次强化学习一起出现，用于学习对不同目标共享的表示；待核对经典来源。
+- 在[[多目标优化]]中，goal-conditioned 方式与 preference-conditioned 的差别在于：前者直接指定目标区域，后者通过权重向量间接标量化目标；待核对经典来源。
+- 稀疏奖励环境里，goal-conditioned 方法常依赖重标注、回放和目标采样机制来提高样本效率；待核对经典来源。
 
 ## 相关论文
 

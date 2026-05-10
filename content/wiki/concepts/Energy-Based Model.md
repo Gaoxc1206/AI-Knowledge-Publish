@@ -2,42 +2,40 @@
 type: "concept"
 status: "enriched"
 category: "生成模型"
-domain: "蛋白质序列设计与多目标优化"
+domain: "蛋白质序列生成与多目标优化"
 background: "included"
 ---
 # Energy-Based Model
 
 ## 标准定义
 
-Energy-Based Model（EBM，能量基模型）是一类用能量函数 E(x) 对样本 x 进行打分的生成模型。通常把低能量解释为更符合数据分布或任务约束，并通过 p(x) ∝ exp(-E(x)) 定义未归一化概率分布。EBM 的学习目标通常是让真实样本能量更低、负样本能量更高；推断和采样常借助 [[Langevin Dynamics]]、[[MCMC]] 等方法。EBM 也常与 [[contrastive divergence]]、product-of-experts 等思想结合使用。
+Energy-Based Model（EBM，能量基模型）是一类用标量能量函数 E(x) 表达样本“好坏”的概率模型，通常令未归一化密度 p(x) ∝ exp(-E(x))。训练目标是让真实数据样本具有更低能量、非数据样本具有更高能量；生成时常通过 [[Langevin Dynamics]] 或其他 MCMC 方法沿能量下降方向采样。它既可以建模数据分布，也常用于条件生成、约束优化和搜索问题。
 
 ## 在本知识库中的用法
 
-在这篇论文中，EBM 被用来表示蛋白质/抗体序列在单个性质上的“可行性”或“适配度”，例如 Ab-like、[[binding affinity]]、[[BV score]] 等。每个性质可对应一个单独的能量函数，再通过组合式采样把多个性质同时纳入生成过程。论文进一步把 EBM 与 [[Multiple Gradient Descent]] 结合，提出 [[pcEBM]]：不是简单对多个能量做固定加权求和，而是在采样时动态寻找更接近 [[Pareto front]] 的改进方向，用于生成或优化多性质兼顾的序列。
+在本文中，EBM 被用于蛋白质/抗体序列采样与优化，并与 [[Compositional Energy-Based Model]] 结合形成 pcEBM。论文不是只追求单一最优序列，而是希望在多个性质上同时获得较优候选，尤其关注 Ab-like、Aff 和 BV score 之间的权衡。具体做法是在多属性 EBM 的采样过程中引入 [[Multiple Gradient Descent]]，用更接近 [[Pareto front]] 的方向替代简单能量求和梯度，从而在真实抗体设计任务中获得更好的多目标覆盖与更稳定的采样表现。
 
 ## 关键点
 
-- EBM 的核心是用能量函数表示样本质量：能量越低，样本越符合模型或约束。
-- 与显式归一化的生成模型不同，EBM 通常只定义未归一化分布，因此采样阶段很重要，常配合 [[Langevin Dynamics]] 使用。
-- 在多属性任务中，EBM 可以被拆成多个属性子模型；论文中的 p[[cEBM]] 就是把多个性质能量组合起来做序列采样。
-- 该论文没有把多个目标简单做固定权重求和，而是借助 [[Multiple Gradient Descent]] 计算动态的 Pareto 改进方向。
-- 这种用法特别适合蛋白质/[[抗体设计]]中的冲突目标，因为单个最优解往往不存在，重点转向寻找更好的 [[Pareto front]] 覆盖。
-- 从库内语境看，EBM 更像是“可控序列生成的评分器 + 采样引擎”，服务于多性质蛋白质[[inverse design|逆向设计]]。
+- 标准上，EBM 用一个能量函数把样本映射到实数标量，能量越低表示越符合模型偏好；采样通常依赖 [[Langevin Dynamics]] 等随机梯度方法。
+- 本文中的 EBM 主要服务于蛋白质序列生成，不是做分类或回归，而是作为可组合的属性打分器与采样器。
+- 与朴素的 [[Compositional Energy-Based Model]] 不同，pcEBM 在采样时不直接把多个能量简单相加，而是用 [[Multiple Gradient Descent]] 找到更合适的多目标改进方向。
+- 该方法的目标是生成位于或接近 [[Pareto front]] 的抗体候选，使 Ab-like、Aff、BV score 等性质之间可调权衡。
+- 实验上，pcEBM 在多目标 [[Hypervolume Indicator|Hypervolume]] 和 edit distance 指标上总体优于或接近强基线，说明 EBM 作为[[可控生成]]框架在该任务中有效。
+- 这类 EBM 更强调“沿能量地形搜索”而非一次性前向生成，因此适合逆向设计和局部优化场景。
 
 ## 别名
 
 - EBM
 - 能量基模型
 - 能量模型
-- Energy Based Model
-- Energy-Based Modeling
 
 ## 外部背景
 
-- EBM 是一个通用生成建模框架，标准形式是通过能量函数刻画数据密度，低能量对应高概率。
-- 经典 EBM 训练常涉及最大似然近似、[[contrastive divergence]] 或其他基于采样的梯度估计。
-- EBM 与 product-of-experts 有天然联系：多个约束或属性可以通过能量相加实现组合。
-- 待核对经典来源：EBM 在深度学习中的系统综述、以及基于 Langevin 采样的标准推导。
+- EBM 是生成建模中的经典框架之一，核心思想是用能量函数间接定义概率分布；待核对经典来源。
+- 在生成任务中，EBM 常与 MCMC、[[Langevin Dynamics]]、score-based 方法或对比学习式训练结合；待核对经典来源。
+- 多属性/条件场景下，EBM 可通过 product of experts 或 compositional 方式组合多个约束；待核对经典来源。
+- EBM 的优势通常是表达灵活、便于注入约束，但代价是采样和训练可能更慢、更不稳定；待核对经典来源。
 
 ## 相关论文
 

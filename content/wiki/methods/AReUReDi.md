@@ -2,40 +2,39 @@
 type: "method"
 status: "enriched"
 category: "优化方法"
-domain: "多目标离散生物序列优化"
+domain: "多目标分子优化"
 background: "included"
 ---
 # AReUReDi
 
 ## 标准定义
 
-AReU[[ReDi]]（Annealed Rectified Updates）可以看作一种面向离散序列的退火式多目标引导采样方法：它以 [[Rectified Discrete Flows]] 之类的[[离散生成模型]]提供 token 级转移先验，再用 [[Tchebycheff scalarization]] 将多个目标压成单个偏好分数，并借助 [[locally balanced proposals]] 与 [[Metropolis-Hastings]] 更新把采样逐步推向高质量解集。其一般目标是从离散空间中更稳定地逼近 [[Pareto front]]。
+AReU[[Rectified Flow|ReDi]] 可视为一种面向离散生成模型的退火式多目标引导采样方法：从带有 [[Discrete Flow Matching|离散流匹配]] / [[Rectified Discrete Flow]] 先验的离散序列模型出发，在局部 token 变换上叠加多目标奖励，并随着退火系数逐步增强引导，使样本更倾向于高质量的 [[Pareto front]] 区域。它本质上结合了生成先验、标量化目标和 [[Metropolis-Hastings]] 式校正。
 
 ## 在本知识库中的用法
 
-在本知识库中，AReUReDi 指该论文提出的多目标离散序列生成框架：用于肽序列和 peptide [[SMILES]] 的生成/优化，支持 [[binding affinity|affinity]]、[[solubility]]、[[hemolysis]]、[[half-life]]、[[non-fouling]] 等目标的联合引导；实现上依赖预训练 ReDi 作为先验，在采样过程中对单个 token 做局部替换，并通过退火式 guidance、局部平衡 proposal 和 MH 校正来增强多目标搜索能力。
+在本知识库中，AReUReDi 专指 2025 年这篇论文提出的 “Annealed Rectified Updates for Refining Discrete Flows with Multi-Objective Guidance” 方法：以 [[PepReDi]] 或 [[SMILESReDi]] 作为离散生成先验，在肽序列和 peptide [[SMILES]] 的单点更新中加入多目标属性打分，使用 [[Tchebycheff scalarization|Tchebycheff 标量化]]、[[Locally Balanced Proposals|locally balanced proposal]] 与 MH 更新，将候选序列推向多属性 Pareto 解。上下文中它主要用于 therapeutic peptide / peptide binder 设计，优化 binding affinity、solubility、hemolysis、half-life、non-fouling 等目标，并与[[Evolutionary Algorithm|进化算法]]和 diffusion-based baseline 对比。
 
 ## 关键点
 
-- 它不是单纯的分类器式打分，而是把多目标评分转成可采样的能量/权重，用于引导离散生成。
-- 论文核心是“先验生成 + 退火引导 + MH 校正”的三段式框架；先验来自 [[Rectified Discrete Flows]]，引导来自多目标[[标量化]]。
-- [[Tchebycheff scalarization]] 让样本更偏向“各目标都不差”的区域，因此更适合寻找近似 [[Pareto front]] 的候选序列。
-- locally balanced proposal 通过满足平衡条件的函数调节 token 替换概率，减少与目标分布之间的不一致。
-- 在库内用法上，它主要用于多目标肽设计与 peptide SMILES 设计，而不是通用连续空间优化。
+- 核心是把 [[Rectified Discrete Flow]] 作为离散序列生成先验，再用多目标属性函数对采样过程进行后验引导。
+- 采用 [[Tchebycheff scalarization]] 将多个目标合成一个退火式 reward，偏好“各项都不太差”的平衡解，而不是单一属性极值。
+- 通过 locally [[Locally Balanced Proposals|balanced proposal]] + [[Metropolis-Hastings]] 接受率校正，尽量保持目标分布不变，同时提高多目标样本质量。
+- 在本论文上下文中，它用于肽序列和 peptide SMILES 的生成优化，覆盖 affinity、solubility、hemolysis、half-life、non-fouling 等属性。
+- 实验表明该方法能把生成结果更稳定地推向 [[Pareto front]]，并在若干基准上优于进化算法和扩散式方法。
 
 ## 别名
 
-- AReUReDi
-- Annealed Rectified Updates
 - Annealed Rectified Updates for Refining Discrete Flows with Multi-Objective Guidance
-- 多目标引导离散流退火校正更新
+- AReUReDi
+- 退火校正更新
 
 ## 外部背景
 
-- Tchebycheff 标量化是多目标优化中的经典做法，常用来把多个目标压缩为一个偏好函数；具体在离散生成中的变体细节可再核对经典来源。
-- Metropolis-Hastings 是经典 MCMC 方法，用接受-拒绝机制保证目标分布不变性；locally balanced proposal 是其常见改进思路，待核对经典来源。
-- Rectified Discrete Flows 属于离散生成模型/离散流匹配方向的一种，通常用于缓解离散 token 生成中的 factorization error。
-- 退火式 guidance 一般指随迭代逐步增强引导强度，以平衡早期探索与后期收敛。
+- [[多目标优化]]通常需要在多个相互冲突的目标之间做权衡，常见做法包括权重加和、Tchebycheff 标量化和 Pareto-based 搜索，待核对经典来源。
+- 退火式采样一般通过逐步增强引导强度来从探索过渡到利用，常用于提升生成分布的可控性，待核对经典来源。
+- [[Metropolis-Hastings]] 是经典的接受-拒绝校正框架，用于把提案分布修正为目标分布，待核对经典来源。
+- 离散流/rectified flow 是近年来用于序列和图结构生成的一类方法；离散版本适合 token 级建模，待核对经典来源。
 
 ## 相关论文
 

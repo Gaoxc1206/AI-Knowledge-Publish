@@ -3,27 +3,42 @@ type: "method"
 status: "enriched"
 category: "优化方法"
 domain: "多目标分子优化"
+background: "included"
 ---
 # MOLLM
 
-## 定义
+## 标准定义
 
-MO[[Large Language Model|LLM]] 是一种不需要额外训练的[[多目标分子优化]]方法，直接把[[大语言模型]]用作[[分子设计]]中的[[crossover|交叉]]与[[mutation|变异算子]]。它通过精心设计的 prompt、[[in-context learning]]、[[Pareto front selection]] 和 [[F-value selection]]，在有限 [[黑盒 oracle|oracle]] 调用预算下优化多个分子性质。作者主张利用预训练 LLM 中已有的化学知识来完成分子搜索，而不是为每组目标重新训练生成模型。
+MO[[大语言模型|LLM]] 可视为一种将[[大语言模型]]直接用作候选生成与编辑算子的[[多目标优化]]框架：在类似[[遗传算法]]的迭代搜索中，让模型承担 crossover 与 mutation，再配合多目标选择策略，在有限评估预算下同时优化多个分子性质。
+
+## 在本知识库中的用法
+
+在本知识库中，MOLLM特指论文“借助专家优化的[[分子生成|分子设计]]多目标[[大语言模型]]”提出的无额外训练方法：从[[ZINC250K]]初始化种群，在固定 5,000 oracle calls 预算下，主要用 ChatGPT 4o 通过提示词对父代分子的[[SMILES]]执行 crossover/mutation，并结合 F-value 选择或[[Pareto Front|Pareto 前沿]]选择生成下一代；论文还系统比较了 best/worst/random initial，并强调在该设置下其相较 [[MOLLEO]]、[[GB-GA]] 等方法具有更高多目标 fitness 且更少 LLM 调用与运行时间。
 
 ## 关键点
 
-- 将 LLM 直接作为分子遗传优化中的 [[crossover]] 和 [[mutation]] 操作器，不依赖传统图编辑算子或额外训练。
-- prompt 模块包含多目标要求、目标描述、父代分子性质、输出指令等，用于引导 LLM 生成子代分子。
-- 通过 F-value selection 与 [[Pareto front]] selection 进行多目标筛选，强调 selection 对最终性能的重要性。
-- 作者专门控制并比较不同初始种群（best / worst / random），说明初始分子对遗传式优化结果影响很大。
-- 主实验中发现 [[ExpeL|experience pool]] 会削弱探索能力，因此未作为默认配置使用。
-- 在 [[PMO benchmark]] 的固定 [[oracle budget]] 下，MOLLM 在多项实验中优于 [[MolLeo|MOLLEO]]、[[GB-GA]] 等基线，并显著减少 LLM 调用与运行时间。
+- MOLLM 的核心是把 [[大语言模型]] 直接当作分子进化搜索中的生成算子，而不是先训练专门的[[分子生成]]模型。
+- 方法同时支持 crossover 与 mutation，并通过提示词注入目标描述、父代分子性质和输出格式约束。
+- 多目标筛选使用 F-value 与[[Pareto Front|Pareto 前沿]]两种机制，兼顾 exploitation 与 exploration。
+- 论文特别强调初始化公平性，区分 best initial、worst initial 和 random initial，以避免遗传类方法比较失真。
+- 该框架采用[[in-context learning]]式提示组织历史经验，但经验池在消融中未带来增益。
+- 在本知识库收录的实验里，MOLLM 在多目标[[分子优化]]上优于多种基线，并显著减少 LLM 调用。
 
 ## 别名
 
+- MOLLM: Optimizing with Experts
+- Multi-Objective Large Language Model
+- MOLLM: Multi-Objective Large Language Model for Molecular Design
+- Multi-Objective LLM
+- MOLLM
 - Multi-Objective Large Language Model for Molecular Design
-- Optimizing with Experts
-- MOLLM: Multi-Objective Large Language Model for Molecular Design – Optimizing with Experts
+- 多目标大语言模型分子设计框架
+
+## 外部背景
+
+- [[遗传算法]]中的 crossover 和 mutation 是常见的组合搜索算子，常用于在结构空间中做局部与全局探索，待核对经典来源。
+- [[多目标优化]]通常用 Pareto dominance / [[Pareto Front|Pareto front]] 描述非支配解集合，以平衡多个冲突目标，待核对经典来源。
+- [[Prompt Engineering]] 与[[in-context learning]]是大语言模型零样本/少样本生成的重要方式，待核对经典来源。
 
 ## 相关论文
 

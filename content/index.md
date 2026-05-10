@@ -1,7 +1,7 @@
 ---
 type: index
 status: public
-updated: 2026-05-09 17:43
+updated: 2026-05-10 16:57
 ---
 # AI 文献知识库
 
@@ -10,25 +10,29 @@ updated: 2026-05-09 17:43
 ## 当前规模
 
 - 论文笔记：16 篇
-- 概念节点：356 个
-- 方法节点：260 个
-- 研究地图：0 个
+- 概念节点：70 个
+- 方法节点：82 个
+- 模型节点：27 个
+- 数据集节点：28 个
+- 研究地图：1 个
 - 研究问题：0 个
-- 更新时间：2026-05-09 17:43
+- 维护说明：1 个
+- 更新时间：2026-05-10 16:57
 
 ## 主要入口
 
 - [[多目标优化]]
-- [[多目标分子优化]]
-- [[多目标贝叶斯优化]]
 - [[Expected Hypervolume Improvement]]
-- [[Pareto front]]
 - [[QED]]
 - [[DRD2]]
-- [[GFlowNets]]
 - [[Bayesian optimization]]
 - [[Gaussian Process]]
 - [[Hypervolume Indicator]]
+- [[Scalarization]]
+- [[Adaptive Hypercone Filtering]]
+- [[ADMET]]
+- [[AReUReDi]]
+- [[Beam Search]]
 
 ## 最近更新
 
@@ -77,11 +81,16 @@ updated: 2026-05-09 17:43
 
 - `wiki/concepts/`：概念节点，回答“这个概念是什么，以及它在多篇论文中如何被使用”。
 - `wiki/methods/`：方法节点，回答“这个方法如何工作、解决什么问题、适合什么场景、有哪些局限”。
+- `wiki/models/`：模型节点，记录论文中反复出现的基础模型、生成模型和预测模型。
+- `wiki/datasets/`：数据集和 benchmark 节点，记录论文使用的任务、数据来源和评测集合。
+- `wiki/maps/`：研究地图和主题路线，用来组织一个方向。
 
 ## 使用原则
 
 - Zotero 是 source of truth，Obsidian 是 synthesized knowledge。
 - `raw/` 保存原始 PDF、关键图和同步资源，尽量不要手工改。
 - `wiki/papers/` 记录单篇论文理解。
-- `wiki/concepts/` 和 `wiki/methods/` 承担跨论文综合。
+- `wiki/concepts/`、`wiki/methods/`、`wiki/models/`、`wiki/datasets/` 承担跨论文综合。
+- `wiki/maps/` 只放研究地图，不放维护手册。
+- `wiki/_meta/` 放维护流程和本地运行说明。
 - 不要为了图谱好看而过度链接。

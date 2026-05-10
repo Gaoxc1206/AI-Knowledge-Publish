@@ -2,44 +2,41 @@
 type: "concept"
 status: "enriched"
 category: "理论概念"
-domain: "药物发现中的多目标分子优化"
+domain: "药物发现与多属性分子优化"
 background: "included"
 ---
 # ADMET
 
 ## 标准定义
 
-[[ADME]]T 是[[drug discovery|药物研发]]中对候选分子吸收（Absorption）、分布（Distribution）、代谢（Metabolism）、排泄（Excretion）和毒性（Toxicity）的统称，用于评估其药代动力学与安全性。它通常与 [[药代动力学]]、[[毒性]]、[[类药性]] 一起，作为先导化合物筛选和优化阶段的重要背景约束。
+ADMET 是药物研发中用于评估候选分子体内行为与安全性的经典框架，分别指 Absorption、Distribution、Metabolism、Excretion 和 Toxicity。它常用于 [[lead optimization]]、可开发性评估和早期安全性筛选，帮助判断分子是否适合作为进一步研发的候选物。
 
 ## 在本知识库中的用法
 
-在本知识库的论文上下文里，ADMET 主要作为[[分子设计]]中的一类“应用导向性质集合”出现，而不是单一标量指标。它被用来描述在生成或优化分子时，除了主要功能目标之外，还要兼顾[[developability|可开发性]]与安全性；例如在荧光分子[[多目标优化]]中，作者明确提到需要同时优化 ADMET / [[细胞膜通透性|细胞通透性]]等性质。在具体任务层面，ADMET 往往被拆解为 [[HIA]]、[[BBBP]]、[[hERG]]、[[CARC]]、MUT、LIV 等可预测属性，并与 [[多目标优化]]、[[分子生成]]、[[分子优化]] 一起作为控制目标或保持约束使用。
+在该论文的可控多属性多目标[[分子优化]]设定中，ADMET 相关性质被拆解为可单独控制的目标属性，用于指导分子从 hit molecule 向 lead molecule 优化。[[C-MuMOInstruct]] 覆盖 10 个药物相关性质，其中包含 BBBP、HIA、hERG、CARC、MUT、DILI 等典型 ADMET/安全性指标；论文将这些属性与 [[QED]]、[[PlogP]]、AMP、DRD2 组合为带阈值的指令任务，要求模型对未达标性质进行提升、对已达标性质保持稳定。
 
 ## 关键点
 
-- ADMET 是从“能否成药”的角度评价分子的核心概念，覆盖吸收、分布、代谢、排泄和毒性五个方面。
-- 在多目标分子优化中，ADMET 常与活性、选择性、溶解性、稳定性等性质共同权衡，目标之间可能彼此冲突。
-- 本知识库语境里，ADMET 往往不是直接作为一个整体标签使用，而是拆成多个可建模属性，如 HIA、BBBP、hERG、CARC、MUT、LIV。
-- 在可控生成任务中，ADMET 更像一组约束：有些属性需要提升，有些属性需要保持在可接受范围内。
-- 对于面向药物发现的生成模型，ADMET 约束有助于避免只追求单一功能指标而导致的不可开发分子。
+- ADMET 不是单一性质，而是一组描述分子在体内命运与安全性的性质集合，常作为药物可开发性的核心约束。
+- 在该知识库对应论文中，ADMET 被具体化为多个可操作属性，例如 [[Blood-Brain Barrier Permeability]]、[[human Intestinal Absorption]]、[[hERG inhibition]]、[[Drug-induced Liver Injury]] 和 [[Mutagenicity]]。
+- 论文采用属性级目标表达方式，把“提升某些 ADMET 指标、维持另一些指标”写成自然语言指令，而不是简单要求所有性质一起变好。
+- ADMET 相关目标与 [[Quantitative Estimate of Drug-Likeness]]、[[PlogP]] 等非安全性属性共同构成[[多目标优化]]任务，更贴近真实的 [[lead optimization]] 场景。
+- 在该论文语境下，ADMET 主要是一个任务设计与评价背景概念，而不是一个单独的数据集或模型。
 
 ## 别名
 
-- ADME-T
-- ADME/T
-- 药代毒理性质
+- ADME-Tox
+- ADMET properties
+- 吸收-分布-代谢-排泄-毒性
 
 ## 外部背景
 
-- ADMET 是药物研发中的经典缩写，标准展开为 Absorption、Distribution、Metabolism、Excretion、Toxicity。
-- ADME 侧重药代动力学，ADMET 在此基础上加入 Toxicity，用于更全面地评估候选化合物的可开发性。
-- 常见与 ADMET 相关的代理性质包括溶解性、渗透性、血脑屏障穿透、CYP 代谢、心脏毒性等，具体定义与测定体系需结合任务背景。
-- 待核对经典来源
+- ADMET 是[[药物发现]]中非常常见的缩写，通常与药代动力学和毒理学筛选一起使用。
+- Toxicity 在实践中常进一步细分为心脏毒性、肝毒性、致突变性、致癌性等具体风险，待核对经典来源。
+- 很多 ADMET 相关任务会被建模为分类或回归问题，依赖 QSAR 或机器学习预测器。
+- ADMET 约束通常出现在先导化合物优化阶段，用来平衡活性、选择性、溶解性和安全性，待核对经典来源。
 
 ## 相关论文
 
-- [[面向可控生物序列设计的多目标引导离散流匹配 - chenMultiObjectiveGuidedDiscreteFlow]]
 - [[基于数据物理双驱动生成框架的多目标荧光分子设计 - liMultiobjectiveFluorescentMolecule]]
-- [[基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization]]
 - [[2025 - 可控多属性多目标分子优化的大语言模型 - deyLargeLanguageModels2025]]
-- [[2023 - 隐式化学空间中的进化多目标分子优化 - suEvolutionaryMultiobjectiveMolecule2023]]

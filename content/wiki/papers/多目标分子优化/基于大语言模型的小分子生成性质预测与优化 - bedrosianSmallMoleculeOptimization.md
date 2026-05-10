@@ -20,383 +20,235 @@ original_title: "Small Molecule Optimization with Large Language Models"
 ---
 ## 一句话总结
 
-《Small Molecule Optimization with Large Language Models》提出了面向小分子 SMILES 表示的专用大语言模型 **Chemlactica-125M**、**Chemlactica-1.3B** 和 **Chemma-2B**，并结合 遗传算法、拒绝采样 与 提示优化 设计了一个面向黑盒 oracle 的 分子优化 算法，在 Practical Molecular Optimization 等基准上取得强结果。
+**Small Molecule Optimization with Large Language Models** 提出在 110M 小分子与约 40B token 的 SMILES/性质语料上继续训练的 Chemlactica-125M、Chemlactica-1.3B 和 Chemma-2B，并用结合遗传算法、拒绝采样思想与 prompt optimization 的群体式分子优化算法，在 PMO 等分子优化 benchmark 上取得强结果。
 
 ## 研究问题
 
-本文关注的问题是：如何利用 大语言模型 在有限 oracle 调用预算下高效进行 小分子优化，即在巨大、离散的 化学空间 中找到满足目标性质的候选分子。
+本文关注如何利用 large language models 进行小分子性质预测、条件生成与黑盒 oracle 下的分子优化。核心问题包括：
 
-形式化地，论文将分子优化定义为：
-
-$$
-m^* = \arg\max_{m \in M} O(m)
-$$
-
-其中：
-
-- $m$：一个分子；
-- $M$：有效分子的约束集合；
-- $O: M \rightarrow R$：黑盒 oracle，用于评价分子性质；
-- oracle 可以代表实验测量、量子模拟、 docking score 或其他昂贵评价函数。
-
-核心挑战包括：
-
-1. 化学空间 极大且离散；
-2. 分子需要满足多个性质约束；
-3. oracle 调用预算有限；
-4. 传统图搜索、SMILES 搜索或强化学习方法可能样本效率不足；
-5. 希望模型能够泛化到任意性质或未知目标函数。
+1. 如何构建包含分子结构、计算性质、实验性质与相似分子信息的大规模分子文本语料，使语言模型能够学习分子结构与性质之间的关系。
+2. 如何让语言模型既能根据 SMILES 预测性质，又能根据目标性质生成满足条件的分子。
+3. 在只能有限次调用黑盒 oracle 的情况下，如何高效搜索离散且巨大的化学空间，找到高分子性质得分的候选分子。
+4. 大模型规模、动态 fine-tuning、prompt 设计、数值精度等因素如何影响分子优化效果。
 
 ## 背景与动机
 
-分子优化 是 药物发现 中的关键任务，目标是寻找具备期望性质的候选化合物。传统实验筛选成本高、周期长，因此计算方法被广泛用于加速候选分子的发现。
+分子优化是药物发现中的关键环节，目标是在庞大的化学空间中寻找满足多种约束和性质要求的候选化合物。传统实验方法成本高、周期长；计算方法可以加速搜索，但需要处理离散、组合爆炸且多目标约束的分子空间。
 
-已有方法包括：
-
-- 基于分子图的 遗传算法；
-- 基于分子图的 Monte Carlo Tree Search；
-- 基于 变分自编码器 的潜空间优化；
-- GFlowNets；
-- 强化学习 方法，如 **REINVENT**；
-- 面向 SMILES 的序列模型，如 **ChemFormer**、**MolT5**、**BARTSmiles**。
-
-近年来，大语言模型 在自然语言、代码和科学文本中展现出强大的序列建模能力。由于 SMILES 本质上是一种字符串表示，分子可以自然地被语言模型处理。本文的动机是：如果将大规模分子结构、计算性质、实验性质和相似分子关系整理为语言模型可学习的文本语料，是否可以训练出既能预测分子性质、又能条件生成和优化分子的专用 化学语言模型。
+已有分子生成与优化方法包括基于图的遗传算法、Monte Carlo tree search、VAE、GFlowNets、强化学习模型如 REINVENT，以及 SMILES 序列建模方法如 ChemFormer、MolT5、BARTSmiles。本文的动机是：既然 large language models 在自然语言和代码任务中展现出强大的序列建模和条件生成能力，那么可否把 SMILES 与分子性质组织成结构化文本语料，让 LLM 学会分子结构、性质和相似性之间的模式，并进一步用于黑盒分子优化。
 
 ## 核心思想
 
-本文的核心思想有三层：
+本文的核心思想是把小分子表示成带标签的文本序列，使语言模型在同一自回归建模框架下学习：
 
-1. **构建大规模带性质标签的分子语料**
-   - 从 **PubChem** 构建包含超过 110M 小分子的训练语料；
-   - 分子以 SMILES 格式表示；
-   - 同时包含计算性质、实验性质、相似分子信息等结构化标签；
-   - 总训练 token 规模约为 40B。
+- 分子结构：通过 SMILES 表示；
+- 分子性质：如 QED、SAS、CLogP、TPSA、molecular weight；
+- 分子相似性：通过 `[SIMILAR] molecule similarity [/SIMILAR]` 表示；
+- 实验性质与 PubChem 相关信息：作为额外文本监督。
 
-2. **继续预训练公开大语言模型为化学专用语言模型**
-   - 基于公开模型继续训练：
-     - **Chemlactica-125M**
-     - **Chemlactica-1.3B**
-     - **Chemma-2B**
-   - 使模型学习分子结构与性质之间的映射关系。
-
-3. **用语言模型替代传统遗传算法中的变异/交叉操作**
-   - 维护一个高分分子池；
-   - 从池中选取若干相似分子作为 prompt；
-   - 让语言模型生成新的候选分子；
-   - 用 oracle 评价；
-   - 若优化停滞，则用当前高分样本动态微调模型；
-   - 形成一个结合 遗传算法、拒绝采样、提示优化 和 在线微调 的分子优化循环。
+在优化阶段，模型不只是一次性生成分子，而是作为群体式优化器中的生成模块：维护高分子得分分子池，使用相似分子 prompt 生成新候选，通过 oracle 打分，再在停滞时用高分样本继续 fine-tune 模型，使模型逐渐适应当前 oracle。
 
 ## 方法框架
 
-### 1. 训练语料构建
+本文方法可分为三层：
 
-论文从 **PubChem** dumps 构建 SQL 数据库，包含：
+1. **语料构建层**  
+   从 PubChem 构建包含超过 110M 分子的 SQL 数据库，并使用 rdkit 计算 SAS、QED、MW、TPSA、CLogP、氢键供受体、环数等性质。由于 PubChem 与 rdkit 的 SMILES canonicalization 不同，作者使用 rdkit 统一标准化 SMILES。数据 cutoff date 为 2023-01-26；无法被 rdkit `MolFromSmiles` 解析的分子被丢弃。
 
-- 分子；
-- 相似分子对；
-- 实验性质；
-- bioassays；
-- PubChem CID；
-- 同义名；
-- 计算得到的分子性质。
+2. **语言模型训练层**  
+   选取三个公开预训练模型继续训练：
+   - Chemlactica-125M
+   - Chemlactica-1.3B
+   - Chemma-2B
 
-使用 **rdkit** 计算若干分子性质，包括：
+   Chemlactica 基于 Galactica 系列，Chemma 基于 Gemma。训练目标为 causal language modeling，使用 cross-entropy loss。上下文长度为 2048。Chemma 使用 bfloat16 训练，训练中使用 FSDP 与 Flash Attention。
 
-- **SAS**：synthesizability score，合成可及性分数；
-- **QED**：quantitatively estimated drug-likeness，类药性；
-- **MW / WEIGHT**：分子量；
-- **TPSA**：total polar surface area，总极性表面积；
-- **CLogP**：分配系数；
-- 氢键供体/受体数量；
-- 环数量等结构特征。
+3. **分子优化层**  
+   维护一个包含 P 个高得分分子的 pool。每轮从 pool 中采样 S 个相似分子构造 prompt，让 LM 生成 N 个新分子，调用 oracle 评分，更新 pool。当最优得分连续 K 轮没有提升时，对 LM 进行额外 fine-tuning，使模型显式学习当前 oracle 的得分模式。
 
-数据处理细节：
+模型校准实验用于检查模型输出概率是否能反映正确性。下图展示 Chemma-2B 与 Chemlactica-125M 在合成多选性质预测题上的 calibration；灰色对角线代表理想校准。
 
-- 所有 SMILES 使用 **rdkit** 标准化；
-- 数据截止日期为 2023-01-26；
-- 无法被 rdkit `MolFromSmiles` 解析的分子被丢弃；
-- 使用 PubChem related molecule data 中 Tanimoto similarity ≥ 0.8 的相似分子对；
-- 从约 200B 对中采样 4B 对；
-- 使用 **ECFC4 fingerprint** 重新计算相似性。
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-01.jpg]]
 
-### 2. JSONL 语料格式
+图中模型的预测置信度与实际正确率大体接近，说明在训练语料分布内，perplexity/probability 可以作为分子性质预测可靠性的粗略信号。
 
-每个分子被表示为一个 JSON 对象，并通过标签模板转为文本。示例格式如下：
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-02.jpg]]
 
-```text
-[WEIGHT]180.16[/WEIGHT]
-[TPSA]63.60[/TPSA]
-[CLOGP]1.31[/CLOGP]
-[START_SMILES]CC(=O)OC1=CC=CC=C1C(=O)O[END_SMILES]
-[SAS]1.58[/SAS]
-[QED]0.92[/QED]
-[SIMILAR]O=C(Oc1ccccc1C(=O)O)c1ccccc1O 0.59[/SIMILAR]
-[PROPERTY]Vapor Pressure 2.52X10-5 mm Hg at 25 °C (calc)[/PROPERTY]
-```
-
-这种模板允许模型学习：
-
-- 从 SMILES 预测性质；
-- 从性质条件生成 SMILES；
-- 根据相似分子生成新分子；
-- 利用自然语言性质或实验性质进行推理。
-
-为增强模型泛化能力，作者随机打乱性质顺序，并随机改变主分子在序列中的位置。
-
-### 3. 模型训练
-
-模型包括：
-
-| 模型 | 参数规模 | 基础模型来源 |
-|---|---:|---|
-| **Chemlactica-125M** | 125M | Galactica 系列 |
-| **Chemlactica-1.3B** | 1.3B | Galactica 系列 |
-| **Chemma-2B** | 2B | Gemma 系列 |
-
-训练方法：
-
-- 目标：causal language modeling；
-- 损失：cross-entropy loss；
-- 优化器：Adam；
-- 上下文长度：2048；
-- 使用 PyTorch FSDP 和 Flash Attention；
-- **Chemma-2B** 使用 bfloat16；
-- **Chemlactica** 使用 dropout，Chemma 不使用 dropout；
-- 对 tokenizer 添加化学专用特殊 token，如 `[START_SMILES]`、`[END_SMILES]` 以及各类属性标签。
-
-### 4. 分子优化框架
-
-优化算法维护一个分子池 `Pool`，每轮执行：
-
-1. 从当前高分池中随机选择若干分子；
-2. 构造包含相似性和目标性质的 prompt；
-3. 用语言模型生成新分子；
-4. 调用 oracle 评价；
-5. 更新高分分子池；
-6. 若若干轮没有提升，则用当前高分分子对语言模型进行微调。
+该图同样对应 calibration 结果。由于 MinerU 提取中图注重复，具体子图对应关系需待补充原文/PDF 后确认。
 
 ## 算法流程
 
-### Algorithm 1：molecules2prompt
+### 1. 分子文本化模板
 
-该函数根据输入分子构造两类 prompt：
-
-1. **生成 prompt**
-   - 当目标分子 $m$ 为空时；
-   - 随机采样相似性值；
-   - 采样期望 oracle 分数；
-   - 输出以 `[START_SMILES]` 结尾的 prompt，要求模型补全分子。
-
-2. **训练样本**
-   - 当目标分子 $m$ 已知时；
-   - 计算 prompt 中分子与目标分子的真实相似度；
-   - 使用真实 oracle score；
-   - 输出包含目标 SMILES 的完整训练样本。
-
-prompt 基本形式为：
+每个分子被表示为带标签的 JSONL 文本对象。示例结构包括：
 
 ```text
-[SIMILAR]m1_smiles sim1[/SIMILAR]
-...
-[SIMILAR]mS_smiles simS[/SIMILAR]
-[PROPERTY]oracle_score[/PROPERTY]
-[START_SMILES]
+[WEIGHT] 180.16 [/WEIGHT]
+[TPSA] 63.60 [/TPSA]
+[CLOGP] 1.31 [/CLOGP]
+[START_SMILES] CC(=O)OC1=CC=CC=C1C(=O)O [END_SMILES]
+[SAS] 1.58 [/SAS]
+[QED] 0.92 [/QED]
+[SIMILAR] ... 0.59 [/SIMILAR]
+[PROPERTY] Vapor Pressure ... [/PROPERTY]
 ```
 
-如果用于训练，则后面接：
+作者随机化属性顺序，并以 50% 概率改变主分子 SMILES 的位置，以便模型同时适应性质预测和性质条件生成。
+
+### 2. 性质预测与条件生成
+
+**Property Prediction**：给定 SMILES 和目标性质标签，让模型补全性质值，例如：
 
 ```text
-target_smiles[END_SMILES]
+[START_SMILES] M_i [END_SMILES] [QED]
 ```
 
-### Algorithm 2：molecular_optimization
+然后计算预测值与真实值之间的 RMSE。
 
-输入参数：
+**Conditional Generation**：给定目标性质值，让模型生成 SMILES，例如：
 
-- $P$：分子池大小；
-- $S$：prompt 中相似分子数量；
-- $N$：每轮生成分子数；
-- $K$：停滞多少轮后触发微调。
+```text
+[QED] v_i [/QED] [START_SMILES]
+```
 
-流程：
+生成后使用 rdkit 计算实际性质，并与目标值计算 RMSE。对于 invalid SMILES，作者用数据集中该性质的均值替代，得到 corrected RMSE。
 
-1. 初始化空的 `Pool`；
-2. 重复直到满足停止条件：
-   1. 从 `Pool` 中随机选择 $S$ 个分子；
-   2. 用 `molecules2prompt` 构造 $N$ 个 prompt；
-   3. 用语言模型生成 $N$ 个新的唯一分子；
-   4. 用 oracle 评价新分子；
-   5. 将新分子加入池中，只保留 top-$P$；
-   6. 如果最优分子连续 $K$ 轮没有提升：
-      - 用池中分子及其生成来源构造训练样本；
-      - 微调语言模型；
-3. 输出高分分子。
+下图展示 Chemma-2B 在不同性质上的 property prediction 与 conditional generation 误差。散点对应分子，背景直方图表示数据库中的真实性质分布，紫色曲线表示对应区域的 RMSE。
 
-### 与传统遗传算法的关系
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-03.jpg]]
 
-传统 遗传算法 通常依赖：
+该图说明模型在不同性质区间的误差并不均匀，性质分布稀疏区域可能更难预测或生成。具体各子图对应的性质名称需待补充原文/PDF 后确认。
 
-- mutation；
-- crossover；
-- selection。
+### 3. 分子优化算法
 
-本文将 mutation/crossover 替换为语言模型条件生成。也就是说，语言模型根据若干高分父代分子的 SMILES 和相似度要求，生成可能相似但性质更优的新分子。
+优化目标形式化为：
+
+```text
+m* = arg max_{m in M} O(m)
+```
+
+其中 `O(m)` 是黑盒 oracle，可代表 docking、实验测量、量子模拟或复合性质函数。
+
+算法包含三个关键机制：
+
+1. **LLM-enhanced genetic algorithm**  
+   用语言模型生成与当前高分 pool 中分子相似的新分子，替代传统遗传算法中的 mutation/crossover。prompt 形式为：
+
+   ```text
+   [SIMILAR] m1_smiles 0.8 [/SIMILAR]
+   ...
+   [SIMILAR] mS_smiles 0.8 [/SIMILAR]
+   [START_SMILES]
+   ```
+
+2. **Explicit oracle modeling**  
+   受到 rejection sampling 思想启发，在优化停滞后把高得分分子与 oracle 分数写入训练样本继续 fine-tune：
+
+   ```text
+   [PROPERTY] O(m) [/PROPERTY]
+   [START_SMILES] m_smiles [END_SMILES]
+   ```
+
+3. **动态 fine-tuning**  
+   如果连续 K 轮最佳分子没有提升，就用 pool 中高得分分子构造训练样本，对 LM 进行额外 fine-tuning。这样模型会逐步适应当前任务的 oracle。
+
+### 4. 伪代码概括
+
+每轮优化流程：
+
+1. 从当前 pool 中随机采样 S 个分子；
+2. 使用 `molecules2prompt` 构造 N 个生成 prompt；
+3. LM 生成 N 个新且唯一的候选分子；
+4. oracle 对新分子评分；
+5. 合并旧 pool 与新分子，保留 top-P；
+6. 若最优分数连续 K 轮未提升，则用 pool 中样本 fine-tune LM；
+7. 重复直到达到 oracle budget 或其他停止条件。
 
 ## 实验设置
 
-### 1. 计算性质预测与条件生成
+### 训练语料与模型
 
-评估任务包括：
+- 数据来源：PubChem dumps。
+- 分子规模：超过 110M 小分子。
+- token 规模：约 40B tokens。
+- 模型：
+  - Chemlactica-125M
+  - Chemlactica-1.3B
+  - Chemma-2B
+- 训练目标：causal language modeling。
+- 上下文长度：2048。
+- 优化器：Adam。
+- 训练基础设施：PyTorch FSDP、Flash Attention。
+- rdkit 用于 SMILES 解析、标准化和性质计算。
 
-- **Property Prediction**
-  - 输入：
-    ```text
-    [START_SMILES]Mi[END_SMILES][QED]
-    ```
-  - 模型预测性质值；
-  - 用 RMSE 评估。
+### 性质预测与条件生成任务
 
-- **Conditional Generation**
-  - 输入：
-    ```text
-    [QED]vi[/QED][START_SMILES]
-    ```
-  - 模型生成 SMILES；
-  - 用 rdkit 计算生成分子的真实性质；
-  - 与目标值 $v_i$ 比较 RMSE。
+计算性质包括：
 
-评估性质包括：
+- QED
+- SIM
+- SAS
+- CLOGP
+- TPSA
+- WEIGHT
 
-- QED；
-- Similarity；
-- SAS；
-- CLogP；
-- TPSA；
-- WEIGHT。
+评估指标为 RMSE；条件生成中使用 corrected RMSE 处理 invalid SMILES。
 
-生成时使用的技术包括：
+### PMO benchmark
 
-- **Chain-of-Thought (CoT)**：省略初始 `[START_SMILES]`，允许模型先生成更多属性；
-- repetition penalty；
-- undesired token suppression，确保模型最终生成 `[START_SMILES]`。
-
-### 2. Practical Molecular Optimization Benchmark
-
-使用 **Practical Molecular Optimization (PMO)** benchmark，包含 23 个分子优化问题。
-
-评价指标：
-
-- oracle 调用上限：10000；
-- 指标：Top-10 average property value 随 oracle calls 的 AUC；
-- 每 100 次 oracle call 计算一次；
-- 最终归一化到 [0, 1]；
-- 报告 5 个随机种子的平均值和标准差。
+Practical Molecular Optimization benchmark 包含 23 个分子优化任务。每个任务 oracle 调用预算为 10,000。指标为 top-10 average property value 随 oracle calls 变化曲线的 normalized AUC，记作 AUC Top-10。
 
 比较方法包括：
 
-- **REINVENT**
-- **Augmented memory**
-- **Genetic-guided GFlowNets**
-- **Chemlactica-125M**
-- **Chemlactica-1.3B**
-- **Chemma-2B**
+- REINVENT
+- Augmented memory
+- Genetic-guided GFlowNets
+- Chemlactica-125M
+- Chemlactica-1.3B
+- Chemma-2B
 
-### 3. Multi-property Optimization with Docking
+### Docking 多性质优化
 
-该实验来自 **REINVENT** 相关 docking benchmark，用于模拟实际药物发现场景。
+该 benchmark 来自 REINVENT 相关工作，目标是在 docking score、QED、分子量限制等约束下生成可行分子。靶点包括：
 
-目标蛋白包括：
+- DRD2
+- MK2
+- AChE
 
-- **DRD2**
-- **MK2-kinase**
-- **acetylcholinesterase / AChE**
+指标包括：
 
-目标：
+- Generative Yield：固定 oracle 调用数下超过 reward threshold 的 unique molecules 数量；
+- Oracle burden：生成 N 个超过 reward threshold 的 unique molecules 所需 oracle 调用数。
 
-- 优化 docking score，即最小化 docking energy；
-- 同时约束 QED；
-- 分子量限制为 500 Da。
+### QED + similarity constrained molecular design
 
-指标：
-
-- **oracle burden**：生成达到阈值的 $N$ 个唯一分子所需 oracle 调用数；
-- **generative yield**：固定 oracle 调用预算下，达到阈值的唯一分子数量。
-
-oracle budget：
-
-- 最大 5000 次 oracle calls。
-
-比较方法包括：
-
-- **REINVENT baseline**
-- **Beam Structure 15**
-- **Chemlactica-125M**
-- **Chemlactica-1.3B**
-- **Chemma-2B**
-
-### 4. QED Maximization with Similarity Constrained Molecular Design
-
-任务目标：
-
-给定一个 lead molecule $M$，生成新分子 $M'$，满足：
-
-$$
-sim(M', M) \geq 0.4
-$$
-
-且：
-
-$$
-qed(M') \geq 0.9
-$$
-
-设置：
-
-- 输入 800 个 QED 在 [0.7, 0.8] 的分子；
-- 评价优化成功率；
-- 本文使用最多 10000 次 QED evaluations；
-- baseline 使用最多 50000 次 QED evaluations。
-
-比较方法：
-
-- **QMO**
-- **RetMol**
-- **Chemlactica-125M**
-
-### 5. MoleculeNet 和 ADMET 性质预测
-
-附录中还评估了模型在性质预测任务上的监督微调能力。
-
-数据集/任务：
-
-- **MoleculeNet**
-  - ESOL
-  - FreeSolv
-  - Lipophilicity
-- **ADMET benchmark**
-  - HLM
-  - MDR1-MDCK ER
-  - Solubility
-  - RLM
-  - hPPB
-  - rPPB
-
-微调格式：
+任务目标：给定 lead molecule `M`，生成 `M'`，满足：
 
 ```text
-[START_SMILES]msmiles[END_SMILES][PROPERTY]<VALUE>[/PROPERTY]
+sim(M', M) >= 0.4
+qed(M') >= 0.9
 ```
 
-训练时只对 `[PROPERTY]` 后的生成响应计算损失。
+输入分子为 800 个 QED 在 `[0.7, 0.8]` 范围内的分子。本文使用 Chemlactica-125M，并将最大 QED evaluations 降低到 10,000，而 baseline 使用 50,000。
 
 ## 主要结果
 
-### 1. PMO benchmark 结果
+### 1. 性质预测与条件生成
 
-在 PMO 23 个任务总和指标上：
+在 computed property prediction 上，模型能较好预测 QED、SIM、SAS、CLOGP、TPSA、WEIGHT 等性质。部分结果：
 
-| 方法 | PMO sum Top-10 AUC |
+- Chemlactica-1.3B 在 QED property prediction 上 RMSE 为 0.004；
+- Chemma-2B-39B 在 SAS property prediction 上 RMSE 为 0.037；
+- Chemma-2B-39B 在 WEIGHT property prediction 上 RMSE 为 1.931；
+- 条件生成通常比性质预测更难，RMSE 明显更高。
+
+作者还发现 conditional generation 的 sampling 技巧很重要，包括 Chain-of-Thought、repetition penalty、undesired token suppression。消融实验显示，加入 suppression 与适度 repetition penalty 通常能减少 invalid generation 并改善 RMSE。
+
+### 2. PMO benchmark
+
+在 PMO benchmark 上，本文方法超过先前方法。关键结果如下：
+
+| 方法 | sum of 23 AUC Top-10 |
 |---|---:|
 | REINVENT | 14.196 |
 | Augmented memory | 15.002 |
@@ -405,292 +257,224 @@ $$
 | Chemlactica-1.3B | 17.284 ± 0.284 |
 | Chemma-2B | 17.534 ± 0.214 |
 
-论文称相较此前最好方法 **Genetic-guided GFlowNets**，平均提升约 8%。
+论文摘要称相对 previous methods 在 Practical Molecular Optimization 上有约 8% improvement。按表中 `17.534` vs `16.213`，提升约为 8.1%。
 
-部分任务结果：
+在 sitagliptin_mpo 上，作者可视化了不同模型、不同 seed 的优化过程。以下四张图对应 Chemlactica-125M 在 sitagliptin_mpo 任务上的四个 seed 优化轨迹。
 
-| 任务 | REINVENT | GG GFlowNets | Chemlactica-125M | Chemlactica-1.3B | Chemma-2B |
-|---|---:|---:|---:|---:|---:|
-| jnk3 | 0.783 | 0.764 | 0.881 | 0.866 | 0.891 |
-| median1 | 0.356 | 0.379 | 0.359 | 0.382 | 0.382 |
-| scaffold_hop | 0.560 | 0.615 | 0.626 | 0.673 | 0.669 |
-| sitagliptin_mpo | 0.021 | 0.634 | 0.649 | 0.586 | 0.613 |
-| sum of 23 | 14.196 | 16.213 | 17.170 | 17.284 | 17.534 |
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-04.jpg]]
 
-观察：
+该图展示某个 seed 下分子得分随优化迭代的变化，体现 pool-based 搜索如何逐步发现更高分候选。具体横纵轴细节需待补充原文/PDF 后确认。
 
-- 最小的 **Chemlactica-125M** 已经超过此前 SOTA；
-- 增大模型规模通常进一步提升 PMO 总分；
-- 没有任何方法在全部任务上统一最优；
-- `valsartan_smarts` 上多个方法结果为 0，论文解释为 oracle 中存在常为 0 的二元乘子，导致缺乏有效监督信号。
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-05.jpg]]
 
-### 2. Docking 多性质优化结果
+该图为同一任务的另一 seed，可用于观察随机初始化或采样带来的轨迹差异。图注在 MinerU 中存在重复，精确编号需待补充原文/PDF 后确认。
 
-在 docking benchmark 中：
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-06.jpg]]
 
-- **Chemma-2B** 在 generative yield 指标上通常表现最好；
-- **Chemlactica-125M** 在 oracle burden 指标上表现很强；
-- **Chemlactica-1.3B** 在部分 DRD2 yield 上表现更好。
+该图继续展示 sitagliptin_mpo 中 Chemlactica-125M 的优化过程。不同 seed 的可视化有助于判断算法是否稳定，而不仅是单次运行成功。
 
-论文的解释是：
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-07.jpg]]
 
-- 较小模型可能更擅长早期探索；
-- 较大模型可能更擅长利用 reward space；
-- 模型规模在 exploration/exploitation 平衡中起重要作用。
+该图对应 Chemlactica-125M 的第四个 seed。整体上，作者用这些轨迹支持模型在困难 PMO 任务中的逐步优化能力。
 
-示例结果：
+以下四张图对应 Chemlactica-1.3B 在 sitagliptin_mpo 上的四个 seed 优化过程。
 
-Generative Yield 0.8：
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-08.jpg]]
 
-| Target | REINVENT | Beam Structure 15 | Chemlactica-125M | Chemlactica-1.3B | Chemma-2B |
-|---|---:|---:|---:|---:|---:|
-| DRD2 | 102 ± 6 | 1780 ± 439 | 2827 ± 510 | 2621 ± 614 | 2985 ± 194 |
-| MK2 | 2 ± 0 | 987 ± 211 | 2569 ± 1156 | 2216 ± 522 | 1058 ± 465 |
-| AChE | 147 ± 11 | 2059 ± 327 | 3246 ± 168 | 3652 ± 349 | 3096 ± 372 |
+该图展示更大 Chemlactica 模型在相同任务中的优化轨迹。与 125M 模型相比，1.3B 模型在总 PMO 分数上略高，但在 sitagliptin_mpo 单项上并非最高。
 
-Oracle burden 0.8 (100)，越低越好：
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-09.jpg]]
 
-| Target | REINVENT | Beam Structure 15 | Chemlactica-125M | Chemlactica-1.3B | Chemma-2B |
-|---|---:|---:|---:|---:|---:|
-| DRD2 | 4595 ± 0 | 1120 ± 25 | 364 ± 119 | 430 ± 250 | 518 ± 41 |
-| MK2 | Failed | 2189 ± 181 | 865 ± 533 | 486 ± 346 | 934 ± 918 |
-| AChE | 3931 ± 286 | 1110 ± 265 | 497 ± 58 | 333 ± 131 | 433 ± 143 |
+该图体现不同 seed 下优化路径可能存在明显差异。论文报告最终指标时采用 5 个 seed 平均值和标准差。
 
-### 3. QED + 相似性约束优化结果
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-10.jpg]]
 
-| 方法 | Success Rate |
-|---|---:|
-| QMO | 92.8% |
-| RetMol | 94.5% |
-| Chemlactica-125M | 99.0% |
+该图可用于理解语言模型生成、oracle 筛选与 pool 更新之间的闭环效果。具体图内分子结构或颜色含义需待补充原文/PDF 后确认。
 
-说明：
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-11.jpg]]
 
-- 本文只评估了 **Chemlactica-125M**；
-- 成功率接近满分；
-- 且最多 QED evaluations 为 10000，比 baseline 的 50000 更少。
+该图为 Chemlactica-1.3B 的另一 seed。结合表格结果，模型规模增加不保证每个单项任务都提升，但总体 PMO sum 有改善。
 
-### 4. 性质预测结果
+### 3. Fine-tuning 消融
 
-在 MoleculeNet 回归任务中：
+作者比较了优化过程中是否执行动态 fine-tuning。结果显示 fine-tuning 并非对所有任务都稳定提升，但对一些困难任务如 sitagliptin_mpo 有明显帮助。例如：
 
-| 方法 | ESOL RMSE ↓ | FreeSolv RMSE ↓ | Lipophilicity RMSE ↓ | Avg ↓ |
+- Chemlactica-125M 在 sitagliptin_mpo：
+  - fine-tuning：0.649 ± 0.051
+  - no fine-tuning：0.607 ± 0.051
+- Chemma-2B 在 sitagliptin_mpo：
+  - fine-tuning：0.613 ± 0.018
+  - no fine-tuning：0.563 ± 0.059
+
+以下图展示 Chemlactica-125M 的 generated molecule mean oracle score ± standard deviation，可用于观察有无 fine-tuning 或不同任务中的优化动态。
+
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-12.jpg]]
+
+该图展示平均 oracle score 与标准差，帮助判断算法不仅能提高均值，也要关注不同 run 之间的稳定性。具体子任务对应关系需待补充原文/PDF 后确认。
+
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-13.jpg]]
+
+该图同属 Chemlactica-125M 的优化轨迹统计。误差带反映不同随机 seed 或运行之间的波动。
+
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-14.jpg]]
+
+该图继续展示 mean oracle score ± standard deviation。若曲线在中后期停滞，动态 fine-tuning 可能用于重新引导模型探索高分区域。
+
+![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/mineru-figure-15.jpg]]
+
+该图为同组统计图的另一张。由于 MinerU 提取的图注截断为 “Figure 6”，具体对应任务需待补充原文/PDF 后确认。
+
+### 4. Docking 多性质优化
+
+在 DRD2、MK2、AChE 三个靶点上，本文方法在 Generative Yield 和 Oracle burden 上普遍优于 REINVENT Baseline 与 Beam Structure 15。
+
+部分结果：
+
+- Generative Yield 0.8：
+  - DRD2：Chemma 2B 为 2985 ± 194，高于 Beam Structure 15 的 1780 ± 439；
+  - MK2：Chemlactica 125M 为 2569 ± 1156，高于 Beam Structure 15 的 987 ± 211；
+  - AChE：Chemlactica 1.3B 为 3652 ± 349，高于 Beam Structure 15 的 2059 ± 327。
+- Oracle burden 0.8 (100)：
+  - DRD2：Chemlactica 125M 为 364 ± 119，低于 Beam Structure 15 的 1120 ± 25；
+  - MK2：Chemlactica 1.3B 为 486 ± 346，低于 Beam Structure 15 的 2189 ± 181；
+  - AChE：Chemlactica 1.3B 为 333 ± 131，低于 Beam Structure 15 的 1110 ± 265。
+
+作者认为较小模型更擅长早期探索，较大模型更擅长利用高 reward 区域，这可能解释了 oracle burden 与 generative yield 之间的差异。
+
+### 5. QED + similarity constrained molecular design
+
+Chemlactica-125M 在该任务上达到 99.0% success rate，优于：
+
+- QMO：92.8%
+- RetMol：94.5%
+
+同时，本文方法的最大 QED evaluations 为 10,000，而 baseline 使用 50,000。由于 Chemlactica-125M 已接近完美，作者没有评估更大模型。
+
+### 6. MoleculeNet 与 ADMET 性质预测
+
+在 MoleculeNet 回归任务上，Chemlactica-125M 表现较强：
+
+| 模型 | ESOL RMSE | FreeSolv RMSE | Lipophilicity RMSE | Avg |
 |---|---:|---:|---:|---:|
-| ChemFormer | 0.633 | 1.230 | 0.598 | 0.820 |
-| MoLFormer-XL | 0.279 | 0.231 | 0.529 | 0.346 |
-| BARTSmiles | 0.308 | 0.338 | 0.540 | 0.395 |
 | Chemlactica-125M | 0.270 ± 0.011 | 0.306 ± 0.011 | 0.533 ± 0.009 | 0.369 |
 | Chemlactica-1.3B | 0.281 ± 0.005 | 0.356 ± 0.009 | 0.557 ± 0.021 | 0.403 |
 | Chemma-2B | 0.298 ± 0.014 | 0.359 ± 0.040 | 0.563 ± 0.004 | 0.406 |
 
-结论：
-
-- **Chemlactica-125M** 在 ESOL 上表现很好；
-- 整体上接近 **BARTSmiles**，但不全面超过 **MoLFormer-XL**；
-- 模型可以用少量样本快速适配新性质预测任务。
-
-### 5. 附加性质 prompt 的影响
-
-论文在附录中测试了在优化 prompt 中加入任务相关已知性质，例如相似目标、CLogP、TPSA 等。
-
-结果显示：
-
-| 模型 | 无附加性质 sum | 加附加性质 sum |
-|---|---:|---:|
-| Chemlactica-125M | 2.515 | 2.920 |
-| Chemlactica-1.3B | 2.506 | 2.824 |
-| Chemma-2B | 2.555 | 2.887 |
-
-说明模型能利用预训练中学到的属性知识。但作者指出，这种方式可能导致与未使用该信息的方法比较不公平，因此主实验未使用这些额外 oracle 相关信息。
+在 ADMET benchmark 上，模型与 MPNN2 基线接近，但并未在所有任务上领先。
 
 ## 创新点
 
-1. **构建了大规模带属性的小分子语言模型语料**
-   - 相比仅包含 SMILES 的语料，本文语料包含计算性质、实验性质、相似分子关系等；
-   - 覆盖超过 110M 分子；
-   - 使用约 40B token 进行继续预训练。
+1. **大规模分子属性文本语料**  
+   不只是 SMILES-only corpus，而是将 110M 小分子的计算性质、实验性质、相似分子、PubChem 标识等组织进结构化文本格式。
 
-2. **提出 Chemlactica 与 Chemma 化学语言模型**
-   - 包括 **Chemlactica-125M**、**Chemlactica-1.3B**、**Chemma-2B**；
-   - 能进行性质预测、条件生成、相似分子生成和分子优化。
+2. **面向小分子的 LLM 继续预训练**  
+   基于 Galactica 与 Gemma 训练 Chemlactica-125M、Chemlactica-1.3B、Chemma-2B，使其适配 SMILES、性质预测与条件生成。
 
-3. **提出结合 LLM 与群体搜索的分子优化算法**
-   - 用语言模型生成替代传统遗传算法的 mutation/crossover；
-   - 将高分样本池作为 evolutionary memory；
-   - 用 oracle 反馈动态微调模型；
-   - 将 遗传算法、拒绝采样 和 提示优化 统一在同一框架中。
+3. **把 LLM 用作遗传算法中的生成算子**  
+   用相似分子 prompt 让 LM 生成候选分子，替代传统分子遗传算法中的显式 crossover/mutation。
 
-4. **在 PMO 等分子优化基准上取得强结果**
-   - PMO 总分超过 **Genetic-guided GFlowNets**；
-   - docking 任务中显著优于 **REINVENT** 和 **Beam Structure 15**；
-   - QED + similarity 约束任务中达到 99.0% 成功率。
+4. **显式 oracle 建模与动态 fine-tuning**  
+   当优化停滞时，将当前高分分子和 oracle score 写入 prompt 继续 fine-tune，使模型逐步学习当前黑盒目标。
 
-5. **展示了语言模型对结构化化学 prompt 的利用能力**
-   - 模型可以利用 `[QED]`、`[SIMILAR]`、`[PROPERTY]`、`[CLOGP]` 等标签完成多种任务；
-   - 表明 LLM 不仅能生成 SMILES，还能在属性条件下进行受控生成。
+5. **在多个分子优化 benchmark 上获得强结果**  
+   在 PMO benchmark、docking 多性质优化和 QED+similarity 约束优化上均取得竞争力或 SOTA 结果。
+
+6. **分析数值精度对优化闭环的影响**  
+   作者指出 bfloat16 在多轮生成与 fine-tuning 的闭环优化中可能造成级联误差，FP32 对某些优化任务更可靠。
 
 ## 局限性
 
-论文附录明确列出若干局限：
+1. **仅使用 SMILES 表示**  
+   模型不支持 3D 原子坐标，因此在构象、立体化学、docking 等强依赖 3D 结构的问题上可靠性受限。
 
-1. **只支持 SMILES，不支持 3D 原子坐标**
-   - 模型仅基于 SMILES 表示；
-   - 对依赖 3D 构象的任务可靠性有限；
-   - 对 docking、蛋白-配体相互作用等任务可能存在结构表示不足。
+2. **对蛋白质等生物实体理解有限**  
+   模型主要围绕小分子语料训练，对蛋白质、靶点、生物通路等信息理解有限，限制了实际药物发现应用。
 
-2. **对蛋白质等其他生物实体理解有限**
-   - 模型主要学习小分子；
-   - 对蛋白质、靶点、生物通路等知识掌握有限；
-   - 限制了其在复杂生物化学和真实药物发现流程中的适用性。
+3. **优化算法未充分调参**  
+   作者承认优化算法并未 exhaustively tuned，仍有进一步提升空间。
 
-3. **优化算法尚未充分调参**
-   - 作者指出算法有效，但没有穷尽式调优；
-   - 仍可能存在性能提升空间。
+4. **未充分考虑真实药物设计约束**  
+   当前方法不完全纳入 synthetic accessibility、实验可合成性、安全性、ADMET 等真实开发约束。虽然语料中有 SAS 等性质，但优化流程并不总是显式考虑这些因素。
 
-4. **未充分考虑真实药物设计中的实用约束**
-   - 当前方法没有系统考虑 synthetic accessibility 之外的合成路线、毒性、ADMET、多靶点安全性等因素；
-   - 可能限制其直接落地到工业药物发现流程。
+5. **双重用途风险**  
+   分子优化模型可能被用于加速药物发现，也可能降低有害化学/生物物质设计门槛。作者建议未来进行生物安全评估与防护机制设计。
 
-5. **低精度数值可能影响分子优化**
-   - 附录指出，在多轮生成与微调的优化循环中，bfloat16 等低精度可能导致生成质量退化；
-   - 分子优化任务对数值精度比普通预训练或单次生成更敏感。
-
-6. **存在潜在双重用途风险**
-   - 分子生成和优化模型可能加速药物发现；
-   - 但也可能降低有害化学/生物物质设计门槛；
-   - 作者建议未来引入生物安全与伦理评估。
+6. **图表解析存在不完整和重复**  
+   当前 MinerU 提取的部分图注重复或截断，部分图片对应的准确 figure/subfigure 编号需待补充原文/PDF 后确认。
 
 ## 相关概念
 
-- [[小分子优化]]
-- [[分子优化]]
-- [[多目标分子优化]]
-- [[药物发现]]
-- [[计算化学]]
-- [[化学信息学]]
+- [[分子性质预测]]
 - [[大语言模型]]
-- [[化学语言模型]]
+- [[分子优化]]
+- [[黑箱优化]]
+- [[多目标优化]]
+- [[分子生成]]
+- [[可控生成]]
 - [[SMILES]]
-- [[条件分子生成]]
-- [[性质预测]]
-- [[黑盒优化]]
-- [[黑盒 oracle]]
-- [[遗传算法]]
-- [[拒绝采样]]
-- [[提示优化]]
-- [[在线微调]]
-- [[强化学习]]
-- [[GFlowNets]]
-- [[分子图]]
-- [[化学空间]]
-- [[类药性]]
 - [[QED]]
-- [[SAS]]
-- [[CLogP]]
-- [[TPSA]]
-- [[分子量]]
-- [[Tanimoto similarity]]
-- [[ECFC4 fingerprint]]
-- [[PubChem]]
-- [[rdkit]]
-- [[MoleculeNet]]
-- [[ADMET]]
-- [[蛋白-配体 docking]]
-- [[oracle burden]]
-- [[generative yield]]
-- [[Top-10 AUC]]
-
+- [[Oracle Calls]]
 ## 相关方法
 
-- [[REINVENT]]
-- [[Augmented memory]]
-- [[Beam Enumeration]]
-- [[Genetic-guided GFlowNets]]
-- [[GFlowNets]]
-- [[ChemFormer]]
-- [[MolT5]]
-- [[BARTSmiles]]
-- [[MoLFormer-XL]]
-- [[GROVER]]
-- [[MolCLR]]
-- [[iMolCLR]]
-- [[QMO]]
-- [[RetMol]]
-- [[Graph-based genetic algorithm]]
-- [[Monte Carlo Tree Search]]
-- [[Variational Autoencoder]]
-- [[Junction Tree VAE]]
-- [[Prompt tuning]]
-- [[EvoPrompt]]
-- [[NEFTune]]
-- [[Flash Attention]]
-- [[FSDP]]
+- [[自回归语言模型]]
+- [[遗传算法]]
+- [[拒绝采样]]
+- [[Prompt Optimization]]
+- [[动态 fine-tuning]]
+## 相关数据集
 
+- [[MoleculeNet]]
+## 相关模型
+
+- [[Galactica]]
+- [[Gemma]]
+- [[Chemlactica-125M]]
+- [[Chemlactica-1.3B]]
+- [[Chemma-2B]]
 ## 相关论文
 
-- **Small Molecule Optimization with Large Language Models**  
-  - citekey: `bedrosianSmallMoleculeOptimization`
-  - authors: Menua Bedrosian, Philipp Guevorguian, Tigran Fahradyan  
-  - 注：PDF 首页还列出 Gayane Chilingaryan、Hrant Khachatrian、Armen Aghajanyan 等作者；Zotero 元数据与 PDF 作者列表不完全一致，待补充原文/PDF 后确认最终作者列表。
-  - year: 待补充原文/PDF 后确认
-  - venue: Foundation Models for Science Workshop, 38th Conference on Neural Information Processing Systems (NeurIPS 2024)，根据 PDF 首页；Zotero 元数据为空，待补充原文/PDF 后确认。
-  - DOI: 待补充原文/PDF 后确认
-
-- **Sample efficiency matters: A benchmark for practical molecular optimization**  
-  - Gao et al., 2022  
-  - 提出 **Practical Molecular Optimization (PMO)** benchmark。
-
-- **REINVENT 2.0: an AI tool for de novo drug design**  
-  - Blaschke et al., 2020  
-  - docking case studies 的相关基准来源之一。
-
-- **Molecular de-novo design through deep reinforcement learning**  
-  - Olivecrona et al., 2017  
-  - **REINVENT** 方法。
-
-- **Augmented memory: Capitalizing on experience replay to accelerate de novo molecular design**  
-  - Guo and Schwaller, 2023a。
-
-- **Beam Enumeration: Probabilistic explainability for sample efficient self-conditioned molecular design**  
-  - Guo and Schwaller, 2023b。
-
-- **Genetic-guided GFlowNets: Advancing in practical molecular optimization benchmark**  
-  - Kim et al., 2024。
-
-- **ChemFormer: a pre-trained transformer for computational chemistry**  
-  - Irwin et al., 2022。
-
-- **Translation between molecules and natural language / MolT5**  
-  - Edwards et al., 2022。
-
-- **BARTSmiles: Generative masked language models for molecular representations**  
-  - Chilingaryan et al., 2024。
-
-- **Retrieval-based controllable molecule generation / RetMol**  
-  - Wang et al., 2023。
-
-- **MoleculeNet: a benchmark for molecular machine learning**  
-  - Wu et al., 2018。
-
-- **Galactica: A large language model for science**  
-  - Taylor et al., 2022。
-
-- **Gemma: Open models based on Gemini research and technology**  
-  - Team et al., 2024。
+- [[Sample Efficiency Matters: A Benchmark for Practical Molecular Optimization]]
+- [[REINVENT 2.0: An AI Tool for De Novo Drug Design]]
+- [[Genetic-guided GFlowNets]]
+- [[Chemformer: A Pre-trained Transformer for Computational Chemistry]]
+- [[BARTSmiles]]
+- [[Retrieval-based Controllable Molecule Generation]]
 
 ## 源文件
 
-- Zotero citekey: `bedrosianSmallMoleculeOptimization`
-- 论文标题: **Small Molecule Optimization with Large Language Models**
-- Zotero collections: 多目标分子优化
-- PDF 文本摘取范围: 第 1–27 页
-- 年份: Zotero 元数据为空；PDF 提到 NeurIPS 2024 workshop，待补充原文/PDF 后确认
-- venue: Zotero 元数据为空；PDF 首页显示 Foundation Models for Science Workshop, 38th Conference on Neural Information Processing Systems (NeurIPS 2024)，待补充原文/PDF 后确认
-- DOI: 待补充原文/PDF 后确认
+- citekey：bedrosianSmallMoleculeOptimization
+- title：Small Molecule Optimization with Large Language Models
+- authors metadata：Menua Bedrosian, Philipp Guevorguian, Tigran Fahradyan
+- authors in parsed full text：Menua Bedrosian, Philipp Guevorguian, Tigran Fahradyan, Gayane Chilingaryan, Hrant Khachatrian, Armen Aghajanyan
+- year：待补充原文/PDF 后确认
+- venue：待补充原文/PDF 后确认
+- DOI：待补充原文/PDF 后确认
+- collections：多目标分子优化
+- 正文来源：MinerU full.md
 
-## 图表摘录
+## 代码与数据
 
-![[raw/zotero/images/多目标分子优化/基于大语言模型的小分子生成性质预测与优化 - bedrosianSmallMoleculeOptimization/page-001.png]]
+### 代码
+
+未在当前解析文本中发现明确代码仓库。
+
+### 数据集 / Benchmark
+
+未在当前解析文本中发现明确数据集或 benchmark 链接。
+
+### 其他链接
+
+- https://api.semanticscholar.org/CorpusID:257232765
+- https://api.semanticscholar.org/CorpusID:2978311
+- https://api.semanticscholar.org/CorpusID:250072218
+- https://openreview.net/forum?id=uyTL5Bvosj
+- https://doi.org/10.1021/acs.jcim.4c00512
+- https://openreview.net/forum?id=mZn2Xyh9Ec
+- https://api.semanticscholar.org/CorpusID:248376906
+- https://api.semanticscholar.org/CorpusID:262012566
+- https://api.semanticscholar.org/CorpusID:9567253
+- https://api.semanticscholar.org/CorpusID:216078090
+- https://doi.org/10.14778/3611540.3611569
 
 ## Zotero 原始摘要
 
@@ -706,70 +490,21 @@ The rise of large language models has created an opportunity for practical appli
 
 ## 我的理解
 
-这篇论文的关键价值不只是“用 LLM 生成 SMILES”，而是把 分子优化 重构成一种结构化语言建模问题。作者通过大量属性标签把分子、性质、相似关系和 oracle 分数都转化为文本序列，使语言模型可以在同一接口下完成性质预测、条件生成和优化搜索。
+这篇论文的关键不只是“用 LLM 生成 SMILES”，而是把小分子优化任务改写成一种语言模型能处理的序列条件生成问题。它的强处在于统一了三类信息：分子本身、分子性质、分子相似性。这样一来，模型既可以预测性质，也可以根据性质或相似性约束生成分子，还可以在优化过程中通过新得到的 oracle 反馈继续 fine-tune。
 
-我认为最重要的设计是：
+从优化角度看，本文方法像是一个用 LLM 替换 mutation/crossover 的进化搜索框架。传统遗传算法需要手工设计分子编辑操作，而这里让语言模型基于相似分子 prompt 自动提出候选分子。由于模型已经在海量分子上预训练，它的 proposal distribution 更接近有效化学空间，因此在有限 oracle budget 下更有优势。
 
-1. **用 `[SIMILAR]` 标签把遗传算法的父代信息显式写入 prompt**
-   - 传统遗传算法需要手工定义 mutation/crossover；
-   - 这里让 LLM 学习“如何基于相似分子生成合理新分子”；
-   - 这相当于数据驱动的、语义更强的变异算子。
+但这种方法也有一个潜在风险：优化闭环高度依赖早期生成质量。如果模型早期生成的高分样本其实只是局部最优，后续 fine-tuning 可能强化这种偏差。论文中关于低精度导致 sub-optimal generations 并产生负反馈的讨论，也说明这类闭环系统容易出现级联效应。
 
-2. **用 `[PROPERTY]oracle_score[/PROPERTY]` 把 oracle 反馈转成可微调数据**
-   - 黑盒 oracle 本身不可微；
-   - 但 oracle 评价后的样本可以转成语言模型训练样本；
-   - 这类似把优化历史蒸馏进生成模型。
-
-3. **动态微调使优化算法具备任务适应能力**
-   - 初始模型来自大规模 PubChem 分布；
-   - 优化中逐步吸收当前任务的高分分子；
-   - 因此它既利用预训练先验，又利用在线反馈适应特定目标。
-
-4. **模型规模与探索/利用的关系值得注意**
-   - docking 实验显示小模型在 oracle burden 上可能更好，大模型在 generative yield 上更强；
-   - 这说明在分子优化中，模型越大不一定在所有阶段都更优；
-   - 实际应用可能需要根据 oracle 成本和探索需求选择模型规模。
-
-5. **公平比较问题需要谨慎**
-   - 模型预训练中已经学过 QED、CLogP、TPSA 等性质；
-   - 如果 PMO oracle 内部包含这些性质，LLM 可能通过 prompt 直接利用部分 oracle 知识；
-   - 作者主实验避免显式加入这些信息，但附录显示加入后性能大幅提升；
-   - 这提示未来 benchmark 需要区分“纯黑盒优化能力”和“利用预训练化学知识的能力”。
-
-总体看，这篇论文适合作为 大语言模型用于分子设计 和 多目标分子优化 的重要参考。它证明了结构化 prompt + 化学预训练 + 在线优化可以在有限 oracle 预算下取得强性能。
+另一个值得注意的点是，模型规模并非单调改善所有任务。Chemlactica-125M 在一些 oracle burden 指标上反而更好，说明小模型可能更容易探索，大模型可能更容易利用。对真实药物发现来说，这提示可以考虑多模型协同：小模型负责探索，大模型负责 exploit 或 rerank。
 
 ## 后续问题
 
-1. **模型是否真正学习了化学规律，还是主要记忆了 PubChem 分布？**
-   - 论文提到 conditional generation 中部分生成分子来自 PubChem；
-   - 需要进一步分析 novelty、scaffold novelty 和真实可合成性。
-
-2. **SMILES-only 表示是否足够支持 docking 相关优化？**
-   - docking 依赖 3D 构象；
-   - 当前模型不直接建模 3D 坐标；
-   - 后续是否可以结合 3D 分子表示 或 蛋白-配体相互作用建模？
-
-3. **动态微调是否会导致模式坍缩？**
-   - 高分池反复用于微调，可能降低分子多样性；
-   - 需要检查 diversity、scaffold diversity 和重复率。
-
-4. **oracle feedback 的使用是否可以更高效？**
-   - 当前是停滞后微调；
-   - 是否可以结合 贝叶斯优化、主动学习 或 强化学习 改进样本效率？
-
-5. **如何扩展到真正的多目标优化？**
-   - 本文虽然涉及多性质任务，但主要通过单一 reward/oracle 聚合；
-   - 可进一步研究 Pareto front、约束优化和 多目标分子优化。
-
-6. **如何处理合成可行性与真实药物开发约束？**
-   - 当前未系统考虑合成路线、毒性、代谢稳定性、选择性等；
-   - 需要与 retrosynthesis、ADMET 和实验反馈结合。
-
-7. **安全风险如何评估？**
-   - 分子优化模型可能被用于设计有害化合物；
-   - 需要建立面向化学/生物安全的 red-teaming benchmark。
-
-8. **Chemlactica 与 Chemma 的公开模型和数据集地址是什么？**
-   - 摘要称公开释放语言模型和数据集；
-   - 当前摘取文本中未包含链接；
-   - 待补充原文/PDF 后确认。
+1. 本文公开模型和数据集的实际下载地址在哪里？当前解析文本未包含明确链接。
+2. Chemlactica 与 Chemma 的基础模型、训练 token 数、数据混合比例是否在原文中有更完整说明？
+3. PMO 中 `valsartan_smarts` 全部方法几乎为 0，是否说明该 benchmark 的部分 oracle 对生成式优化不够友好？
+4. 动态 fine-tuning 在哪些任务上有负面影响？是否可以用不确定性或 early stopping 自动决定是否 fine-tune？
+5. 如果引入 3D conformation、protein sequence 或 binding pocket 信息，本文 prompt 格式该如何扩展？
+6. 本文方法在真实 wet-lab feedback 下是否可行？oracle 噪声、延迟和批量评估成本会如何影响算法？
+7. 使用额外性质 prompt 会带来不公平比较，但在实际应用中很有价值；如何系统评估“允许使用已知性质”的增强版本？
+8. 是否可以把本文的 explicit oracle modeling 与 Bayesian optimization、active learning 或 surrogate model 结合？
