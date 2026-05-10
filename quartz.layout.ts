@@ -11,8 +11,10 @@ const knowledgeExplorerOptions = {
       concepts: 1,
       methods: 2,
       papers: 3,
-      questions: 4,
-      raw: 5,
+      datasets: 4,
+      models: 5,
+      questions: 6,
+      raw: 7,
     }
 
     if (a.isFolder && b.isFolder) {
@@ -32,7 +34,9 @@ const knowledgeExplorerOptions = {
   filterFn: (node: any) => {
     const filePath = node.data?.filePath ?? ""
     if (node.slugSegment === "tags") return false
+    if (node.slugSegment === "_meta") return false
     if (node.slugSegment === "maps") return false
+    if (filePath.includes("/wiki/_meta/")) return false
     if (filePath.includes("wiki/maps/AI 文献知识库工作流.md")) return false
     return true
   },
@@ -45,6 +49,8 @@ const knowledgeExplorerOptions = {
         concepts: "概念",
         methods: "方法",
         papers: "论文",
+        datasets: "数据集",
+        models: "模型",
         questions: "问题",
         raw: "图像资源",
         zotero: "Zotero",
@@ -57,10 +63,11 @@ const knowledgeExplorerOptions = {
     let name = node.displayName
     const yearMatch = filePath.match(/\/papers\/[^/]+\/(\d{4})\s*-/)
     const year = yearMatch ? `${yearMatch[1]} ` : ""
+    name = name.replace(/^(论文|概念|方法|数据集|模型|问题)\s*[|｜]\s*/, "")
     name = name.replace(/\s*-\s*[a-z][A-Za-z0-9]+$/, "")
 
-    if (name.length > 28) {
-      name = `${name.slice(0, 28)}...`
+    if (name.length > 34) {
+      name = `${name.slice(0, 34)}...`
     }
 
     if (filePath.includes("/wiki/papers/")) {
@@ -68,6 +75,8 @@ const knowledgeExplorerOptions = {
     } else if (
       filePath.includes("/wiki/concepts/") ||
       filePath.includes("/wiki/methods/") ||
+      filePath.includes("/wiki/datasets/") ||
+      filePath.includes("/wiki/models/") ||
       filePath.includes("/wiki/questions/")
     ) {
       node.displayName = name

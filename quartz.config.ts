@@ -17,7 +17,7 @@ const config: QuartzConfig = {
     },
     locale: "zh-CN",
     baseUrl: "Gaoxc1206.github.io/AI-Knowledge-Publish",
-    ignorePatterns: ["private", "templates", ".obsidian", "**/*.json"],
+    ignorePatterns: ["private", "templates", ".obsidian", "**/_meta/**", "**/*.json"],
     defaultDateType: "modified",
     theme: {
       fontOrigin: "googleFonts",
